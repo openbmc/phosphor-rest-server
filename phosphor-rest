@@ -1,0 +1,342 @@
+#!/usr/bin/env python
+
+# Contributors Listed Below - COPYRIGHT 2015
+# [+] International Business Machines Corp.
+#
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+
+import BaseHTTPServer
+import SocketServer
+import json
+import dbus
+from OpenBMCMapper import Path
+import OpenBMCMapper
+
+class RestException(Exception):
+	def __init__(self, msg, http_status=403):
+		self.status = http_status
+		super(RestException, self).__init__(msg)
+        
+class Response(object):
+	def render(self, handler):
+		raise NotImplemented()
+
+class ErrorResponse(Response):
+	def __init__(self, ex):
+		self.ex = ex
+
+	def render(self, handler):
+		err = {'status': 'error', 'error': self.ex.message,}
+		handler.send_response(self.ex.status)
+		handler.send_header('Content-Type', 'application/json')
+		handler.end_headers()
+		handler.wfile.write(json.dumps(err, indent=2, sort_keys=True))
+
+class JSONResponse(Response):
+	def __init__(self, data):
+		self.data = data
+
+	def render(self, handler):
+		handler.send_response(200)
+		handler.send_header('Content-Type', 'application/json')
+		handler.end_headers()
+		handler.wfile.write(json.dumps(self.data, indent=2, sort_keys=True))
+
+class RequestHandler(object):
+	def __init__(self, req, path, data):
+		self.req = req 
+		self.path = path
+		self.bus = req.server.bus
+		self.mapper = req.server.mapper
+		self.data = data
+
+	def do_command(self):
+		f = getattr(self, 'do_' + self.req.command)
+		return f()
+
+	def do_GET(self):
+		raise RestException("Not Implemented", 501)
+
+	def do_PUT(self):
+		raise RestException("Not Implemented", 501)
+
+	def do_POST(self):
+		raise RestException("Not Implemented", 501)
+
+	def do_PATCH(self):
+		raise RestException("Not Implemented", 501)
+
+	def do_DELETE(self):
+		raise RestException("Not Implemented", 501)
+
+class MethodHandler(RequestHandler):
+	def __init__(self, req, path, data):
+		super(MethodHandler, self).__init__(req, path, data)
+		self.method = Path(self.req.path).rel(first = -1)
+
+	def find_method_in_interface(self, obj, interface):
+		try:
+			iface = dbus.Interface(obj, interface)
+			return getattr(iface, self.method)
+		except dbus.DBusException:
+			return None
+
+	def find_method_on_bus(self, bus, interfaces):
+		obj = self.bus.get_object(bus, self.path)
+		for i in interfaces:
+			m = self.find_method_in_interface(obj, i)
+			if not m:
+				continue
+		return m
+
+	def find_method(self):
+		busses = self.mapper.GetTree(
+				self.path, 0, 'exact')[self.path]
+		for items in busses.iteritems():
+			m = self.find_method_on_bus(*items)
+			if not m:
+				continue
+
+		return m
+
+	def do_POST(self):
+		try:
+			method = self.find_method()
+		except:
+			raise RestException("Not Found", 404)
+		try:
+			d = { 'result': method(*self.data),
+					'status': 'OK'}
+		except Exception, e:
+			d = { 'error': str(e),
+					'status': 'error'}
+		return d
+
+class InstanceHandler(RequestHandler):
+	def __init__(self, req, path, data, busses):
+		super(InstanceHandler, self).__init__(req, path, data)
+		self.busses = busses
+
+	def get_one_iface(self, properties_iface, iface):
+		try:
+			return properties_iface.GetAll(iface)
+		except:
+			# interface doesn't have any properties
+			return {}
+
+	def get_one_bus(self, bus, interfaces):
+		properties = {}
+		obj = self.bus.get_object(bus, self.path)
+		properties_iface = dbus.Interface(
+				obj, dbus_interface=dbus.PROPERTIES_IFACE)
+		for i in interfaces:
+			properties.update(self.get_one_iface(properties_iface, i))
+
+		return properties
+
+	def do_GET(self):
+		properties = {}
+		for item in self.busses.iteritems():
+			properties.update(self.get_one_bus(*item))
+
+		return properties
+
+	def try_set_one_interface(self, prop, value, properties_iface, interface):
+		try:
+			properties_iface.Set(interface, prop, value)
+			return True
+		except:
+			# property doesn't live on this interface/bus
+			return False
+
+	def try_set_one_bus(self, prop, value, bus, interfaces):
+		obj = self.bus.get_object(bus, self.path)
+		properties_iface = dbus.Interface(
+				obj, dbus_interface=dbus.PROPERTIES_IFACE)
+
+		for iface in interfaces:
+			if self.try_set_one_interface(prop, value, 
+					properties_iface, iface):
+				return True
+
+		return False
+
+	def set_one_property(self, prop, value):
+		for item in self.busses.iteritems():
+			if not self.try_set_one_bus(prop, value, *item):
+				raise RestException("Not Found", 404)
+
+	def validate_json(self):
+		if type(self.data) != dict:
+			raise RestException("Bad Request", 400)
+
+		obj = self.do_GET()
+		if len(self.data) != len(obj):
+			raise RestException("Bad Request", 400)
+		for x in obj.iterkeys():
+			if x not in self.data:
+				raise RestException("Bad Request", 400)
+
+	def do_PUT(self):
+		try:
+			self.validate_json()
+			for p in self.data.iteritems():
+				self.set_one_property(*p)
+
+			d = { 'status': 'OK'}
+		except Exception, e:
+			d = { 'error': str(e),
+					'status': 'error'}
+		return d
+
+	def do_POST(self):
+		for p in self.data.iteritems():
+			self.set_one_property(*p)
+
+class AttrHandler(RequestHandler):
+	def __init__(self, req, path, data):
+		super(AttrHandler, self).__init__(req, path, data)
+		try:
+			self.inst = InstanceHandler(req, path, data,
+					self.mapper.GetTree(path, 0, 'exact')[path])
+		except KeyError:
+			raise RestException("Not Found", 404)
+		self.attr = Path(self.req.path).rel(first = -1)
+
+	def do_GET(self):
+		obj = self.inst.do_GET()
+		try:
+			return obj[self.attr]
+		except KeyError:
+			raise RestException("Not Found", 404)
+
+	def do_PUT(self):
+		self.inst.set_one_property(self.attr, self.data)
+
+class TypesHandler(RequestHandler):
+	def __init__(self, req, path, data):
+		super(TypesHandler, self).__init__(req, path, data)
+
+	def do_GET(self):
+		types = self.mapper.GetTreePaths(self.path, 1, 'exact')
+		if not types:
+			raise RestException("Not Found", 404)
+
+		return types
+
+class ListHandler(RequestHandler):
+	def __init__(self, req, path, data):
+		super(ListHandler, self).__init__(req, path, data)
+
+	def do_GET(self):
+		objs = self.mapper.GetTree(self.path, -1, 'fuzzy')
+		if self.path in objs:
+			del objs[self.path]
+		if not objs:
+			raise RestException("Not Found", 404)
+
+		return objs.keys() 
+
+class EnumerateHandler(RequestHandler):
+	def __init__(self, req, path, data):
+		super(EnumerateHandler, self).__init__(req, path, data)
+
+	def do_GET(self):
+		objs = {}
+		mapper_data = self.mapper.GetTree(self.path, -1, 'fuzzy')
+		if self.path in mapper_data:
+			del mapper_data[self.path]
+
+		for x,y in mapper_data.iteritems():
+			objs[x] = InstanceHandler(self.req, x, self.data, y).do_GET()
+
+		if not objs:
+			raise RestException("Not Found", 404)
+
+		return objs
+
+class DBusRestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+	def get_real_handler(self, data):
+		path = Path(self.path)
+
+		if self.path[-1] == '/':
+			return TypesHandler(self, path.fq(), data)
+
+		if path.parts[-1] == 'list':
+			return ListHandler(self, path.fq(last = -1), data)
+
+		if path.parts[-1] == 'enumerate':
+			return EnumerateHandler(self, path.fq(last = -1), data)
+
+		if path.parts[-2] == 'attr':
+			return AttrHandler(self, path.fq(last = -2), data)
+
+		if path.parts[-2] == 'action':
+			return MethodHandler(self, path.fq(last = -2), data)
+
+		# have to do an objectmapper query at this point
+		mapper_entry = self.server.mapper.GetTree(
+				path.fq(), 0, 'exact')
+		if mapper_entry:
+			return InstanceHandler(self, path.fq(), data, 
+					mapper_entry[path.fq()])
+
+		raise RestException("Not Found", 404)
+
+	def do_command(self):
+		data = None
+		try:
+			if self.command in ['POST', 'PUT', 'PATCH']:
+       		 		length = int(self.headers.getheader(
+					'content-length'))
+			        data = json.loads(self.rfile.read(length))
+
+			resp = self.get_real_handler(data).do_command()
+			if not resp:
+				resp = {'status': 'OK' }
+			response = JSONResponse(resp)
+		except RestException, ex:
+			response = ErrorResponse(ex)
+
+		response.render(self)
+		self.wfile.close()
+
+	def do_GET(self):
+		return self.do_command()
+
+	def do_POST(self):
+		return self.do_command()
+
+	def do_PATCH(self):
+		return self.do_command()
+
+	def do_PUT(self):
+		return self.do_command()
+
+	def do_DELETE(self):
+		return self.do_command()
+
+class HTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
+	def __init__(self, bind, handler):
+		BaseHTTPServer.HTTPServer.__init__(self, bind, handler)
+		self.bus = dbus.SystemBus()
+		mapper = self.bus.get_object(OpenBMCMapper.MAPPER_NAME,
+				OpenBMCMapper.MAPPER_PATH)
+		self.mapper = dbus.Interface(mapper,
+				dbus_interface = OpenBMCMapper.MAPPER_IFACE)
+
+if __name__ == '__main__':
+	bus = dbus.SystemBus()
+	server = HTTPServer(('', 80), DBusRestHandler)
+	server.serve_forever()

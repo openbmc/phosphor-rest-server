@@ -328,9 +328,9 @@ class DBusRestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		return self.do_command()
 
 class HTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
-	def __init__(self, bind, handler):
+	def __init__(self, bind, handler, bus):
 		BaseHTTPServer.HTTPServer.__init__(self, bind, handler)
-		self.bus = dbus.SystemBus()
+		self.bus = bus
 		mapper = self.bus.get_object(OpenBMCMapper.MAPPER_NAME,
 				OpenBMCMapper.MAPPER_PATH)
 		self.mapper = dbus.Interface(mapper,
@@ -338,5 +338,5 @@ class HTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
 
 if __name__ == '__main__':
 	bus = dbus.SystemBus()
-	server = HTTPServer(('', 80), DBusRestHandler)
+	server = HTTPServer(('', 80), DBusRestHandler, bus)
 	server.serve_forever()

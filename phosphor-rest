@@ -275,10 +275,10 @@ class DBusRestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		if path.parts[-1] == 'enumerate':
 			return EnumerateHandler(self, path.fq(last = -1), data)
 
-		if path.parts[-2] == 'attr':
+		if path.depth() > 1 and path.parts[-2] == 'attr':
 			return AttrHandler(self, path.fq(last = -2), data)
 
-		if path.parts[-2] == 'action':
+		if path.depth() > 1 and path.parts[-2] == 'action':
 			return MethodHandler(self, path.fq(last = -2), data)
 
 		# have to do an objectmapper query at this point

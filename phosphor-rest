@@ -20,7 +20,7 @@ import BaseHTTPServer
 import SocketServer
 import json
 import dbus
-from OpenBMCMapper import Path, Mapper
+from OpenBMCMapper import Path, Mapper, PathTree
 import OpenBMCMapper
 
 class RestException(Exception):
@@ -250,11 +250,47 @@ class EnumerateHandler(RequestHandler):
 	def __init__(self, req, path, data):
 		super(EnumerateHandler, self).__init__(req, path, data)
 
+	def get_enumerate(self, path, data):
+		busses = []
+		for s, i in data.iteritems():
+			if OpenBMCMapper.ENUMERATE_IFACE in i:
+				busses.append(s)
+		return busses
+
+	def call_enumerate(self, path, busses):
+		objs = {}
+		for b in busses:
+			obj = self.bus.get_object(b, path)
+			iface = dbus.Interface(obj, OpenBMCMapper.ENUMERATE_IFACE)
+			objs.update(iface.enumerate())
+		return objs
+
 	def do_GET(self):
 		objs = {}
 		mapper_data = self.mapper.get_subtree(self.path)
-
+		tree = PathTree()
 		for x,y in mapper_data.iteritems():
+			tree[x] = y
+
+		try:
+			# Check to see if the root path implements
+			# enumerate in addition to any sub tree
+			# objects.
+			root = self.mapper.get_object(self.path)
+			mapper_data[self.path] = root
+		except:
+			pass
+
+		have_enumerate = [ (x[0], self.get_enumerate(*x)) for x in mapper_data.iteritems() \
+				if self.get_enumerate(*x) ]
+
+		for x,y in have_enumerate:
+			objs.update(self.call_enumerate(x, y))
+			tmp = tree[x]
+			del tree[x]
+			tree[x] = tmp
+
+		for x,y in tree.dataitems():
 			objs[x] = InstanceHandler(self.req, x, self.data, y).do_GET()
 
 		if not objs:

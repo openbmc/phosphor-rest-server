@@ -20,7 +20,7 @@ import BaseHTTPServer
 import SocketServer
 import json
 import dbus
-from OpenBMCMapper import Path
+from OpenBMCMapper import Path, Mapper
 import OpenBMCMapper
 
 class RestException(Exception):
@@ -101,8 +101,8 @@ class MethodHandler(RequestHandler):
 		return m
 
 	def find_method(self):
-		busses = self.mapper.GetTree(
-				self.path, 0, 'exact')[self.path]
+		busses = self.mapper.get_object(
+				self.path)
 		for items in busses.iteritems():
 			m = self.find_method_on_bus(*items)
 			if not m:
@@ -209,7 +209,7 @@ class AttrHandler(RequestHandler):
 		super(AttrHandler, self).__init__(req, path, data)
 		try:
 			self.inst = InstanceHandler(req, path, data,
-					self.mapper.GetTree(path, 0, 'exact')[path])
+					self.mapper.get_object(path))
 		except KeyError:
 			raise RestException("Not Found", 404)
 		self.attr = Path(self.req.path).rel(first = -1)
@@ -229,7 +229,7 @@ class TypesHandler(RequestHandler):
 		super(TypesHandler, self).__init__(req, path, data)
 
 	def do_GET(self):
-		types = self.mapper.GetTreePaths(self.path, 1, 'exact')
+		types = self.mapper.get_subtree_paths(self.path, 1)
 		if not types:
 			raise RestException("Not Found", 404)
 
@@ -240,9 +240,7 @@ class ListHandler(RequestHandler):
 		super(ListHandler, self).__init__(req, path, data)
 
 	def do_GET(self):
-		objs = self.mapper.GetTree(self.path, -1, 'fuzzy')
-		if self.path in objs:
-			del objs[self.path]
+		objs = self.mapper.get_subtree(self.path)
 		if not objs:
 			raise RestException("Not Found", 404)
 
@@ -254,9 +252,7 @@ class EnumerateHandler(RequestHandler):
 
 	def do_GET(self):
 		objs = {}
-		mapper_data = self.mapper.GetTree(self.path, -1, 'fuzzy')
-		if self.path in mapper_data:
-			del mapper_data[self.path]
+		mapper_data = self.mapper.get_subtree(self.path)
 
 		for x,y in mapper_data.iteritems():
 			objs[x] = InstanceHandler(self.req, x, self.data, y).do_GET()
@@ -286,11 +282,10 @@ class DBusRestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 			return MethodHandler(self, path.fq(last = -2), data)
 
 		# have to do an objectmapper query at this point
-		mapper_entry = self.server.mapper.GetTree(
-				path.fq(), 0, 'exact')
+		mapper_entry = self.server.mapper.get_object(path.fq())
 		if mapper_entry:
 			return InstanceHandler(self, path.fq(), data,
-					mapper_entry[path.fq()])
+					mapper_entry)
 
 		raise RestException("Not Found", 404)
 
@@ -331,10 +326,7 @@ class HTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
 	def __init__(self, bind, handler, bus):
 		BaseHTTPServer.HTTPServer.__init__(self, bind, handler)
 		self.bus = bus
-		mapper = self.bus.get_object(OpenBMCMapper.MAPPER_NAME,
-				OpenBMCMapper.MAPPER_PATH)
-		self.mapper = dbus.Interface(mapper,
-				dbus_interface = OpenBMCMapper.MAPPER_IFACE)
+		self.mapper = Mapper(self.bus)
 
 if __name__ == '__main__':
 	bus = dbus.SystemBus()

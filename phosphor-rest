@@ -27,7 +27,7 @@ class RestException(Exception):
 	def __init__(self, msg, http_status=403):
 		self.status = http_status
 		super(RestException, self).__init__(msg)
-        
+
 class Response(object):
 	def render(self, handler):
 		raise NotImplemented()
@@ -55,7 +55,7 @@ class JSONResponse(Response):
 
 class RequestHandler(object):
 	def __init__(self, req, path, data):
-		self.req = req 
+		self.req = req
 		self.path = path
 		self.bus = req.server.bus
 		self.mapper = req.server.mapper
@@ -166,7 +166,7 @@ class InstanceHandler(RequestHandler):
 				obj, dbus_interface=dbus.PROPERTIES_IFACE)
 
 		for iface in interfaces:
-			if self.try_set_one_interface(prop, value, 
+			if self.try_set_one_interface(prop, value,
 					properties_iface, iface):
 				return True
 
@@ -246,7 +246,7 @@ class ListHandler(RequestHandler):
 		if not objs:
 			raise RestException("Not Found", 404)
 
-		return objs.keys() 
+		return objs.keys()
 
 class EnumerateHandler(RequestHandler):
 	def __init__(self, req, path, data):
@@ -289,7 +289,7 @@ class DBusRestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		mapper_entry = self.server.mapper.GetTree(
 				path.fq(), 0, 'exact')
 		if mapper_entry:
-			return InstanceHandler(self, path.fq(), data, 
+			return InstanceHandler(self, path.fq(), data,
 					mapper_entry[path.fq()])
 
 		raise RestException("Not Found", 404)

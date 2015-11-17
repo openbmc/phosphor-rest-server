@@ -509,7 +509,7 @@ class JsonApiErrorsPlugin(object):
 			response_object['data']['traceback'] = error.traceback.splitlines()
 
 		json_response = json.dumps(response_object, **self.json_opts)
-		res.content_type = 'application/json'
+		response.content_type = 'application/json'
 		return json_response
 
 class RestApp(Bottle):

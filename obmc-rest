@@ -336,6 +336,36 @@ class PropertyHandler(RouteHandler):
 				continue
 			return prop, i
 
+class SchemaHandler(RouteHandler):
+	verbs = ['GET']
+	rules = '<path:path>/schema'
+
+	def __init__(self, app, bus):
+		super(SchemaHandler, self).__init__(
+				app, bus, self.verbs, self.rules)
+
+	def find(self, path):
+		return self.try_mapper_call(
+			self.mapper.get_object,
+			path = path)
+
+	def setup(self, path):
+		request.route_data['map'] = self.find(path)
+
+	def do_get(self, path):
+		schema = {}
+		for x in request.route_data['map'].iterkeys():
+			obj = self.bus.get_object(
+					x, path, introspect = False)
+			iface = dbus.Interface(obj, dbus.INTROSPECTABLE_IFACE)
+			data = iface.Introspect()
+			parser = IntrospectionNodeParser(
+					ElementTree.fromstring(data))
+			for x,y in parser.get_interfaces().iteritems():
+				schema[x] = y
+
+		return schema
+
 class InstanceHandler(RouteHandler):
 	verbs = ['GET', 'PUT', 'DELETE']
 	rules = '<path:path>'
@@ -702,6 +732,7 @@ class RestApp(Bottle):
 		self.list_handler = ListHandler(self, self.bus)
 		self.method_handler = MethodHandler(self, self.bus)
 		self.property_handler = PropertyHandler(self, self.bus)
+		self.schema_handler = SchemaHandler(self, self.bus)
 		self.instance_handler = InstanceHandler(self, self.bus)
 
 	def install_handlers(self):
@@ -711,6 +742,7 @@ class RestApp(Bottle):
 		self.list_handler.install()
 		self.method_handler.install()
 		self.property_handler.install()
+		self.schema_handler.install()
 		# this has to come last, since it matches everything
 		self.instance_handler.install()
 

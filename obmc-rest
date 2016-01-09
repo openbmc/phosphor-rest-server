@@ -18,6 +18,7 @@ import crypt
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
 DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
+DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'org.openbmc.Object.Delete'
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
@@ -242,6 +243,8 @@ class MethodHandler(RouteHandler):
 
 		except dbus.exceptions.DBusException, e:
 			if e.get_dbus_name() == DBUS_INVALID_ARGS:
+				abort(400, str(e))
+			if e.get_dbus_name() == DBUS_TYPE_ERROR:
 				abort(400, str(e))
 			raise
 

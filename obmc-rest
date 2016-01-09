@@ -745,5 +745,7 @@ if __name__ == '__main__':
 			443,
 			default_cert,
 			default_cert),
-		'wsgi', {'wsgi_app': app})
+		'wsgi', {'wsgi_app': app},
+		min_threads = 1,
+		max_threads = 1)
 	server.start()

@@ -9,8 +9,10 @@ import logging
 from xml.etree import ElementTree
 from rocket import Rocket
 from bottle import Bottle, abort, request, response, JSONPlugin, HTTPError
-import OpenBMCMapper
-from OpenBMCMapper import Mapper, PathTree, IntrospectionNodeParser, ListMatch
+import obmc.utils.misc
+import obmc.utils.pathtree
+from obmc.dbuslib.introspection import IntrospectionNodeParser
+import obmc.mapper
 import spwd
 import grp
 import crypt
@@ -69,7 +71,7 @@ class RouteHandler(object):
     def __init__(self, app, bus, verbs, rules):
         self.app = app
         self.bus = bus
-        self.mapper = Mapper(bus)
+        self.mapper = obmc.mapper.Mapper(bus)
         self._verbs = makelist(verbs)
         self._rules = rules
 
@@ -95,7 +97,7 @@ class RouteHandler(object):
         try:
             return f(**kw)
         except dbus.exceptions.DBusException, e:
-            if e.get_dbus_name() != OpenBMCMapper.MAPPER_NOT_FOUND:
+            if e.get_dbus_name() != obmc.mapper.MAPPER_NOT_FOUND:
                 raise
             if callback is None:
                 def callback(e, **kw):
@@ -173,7 +175,7 @@ class ListHandler(RouteHandler):
     def do_get(self, path='/'):
         objs = {}
         mapper_data = request.route_data['map']
-        tree = PathTree()
+        tree = obmc.utils.pathreee.PathTree()
         for x, y in mapper_data.iteritems():
             tree[x] = y
 
@@ -210,7 +212,7 @@ class ListHandler(RouteHandler):
     def enumerate_capable(path, bus_data):
         busses = []
         for name, ifaces in bus_data.iteritems():
-            if OpenBMCMapper.ENUMERATE_IFACE in ifaces:
+            if obmc.mapper.ENUMERATE_IFACE in ifaces:
                 busses.append(name)
         return busses
 
@@ -218,7 +220,7 @@ class ListHandler(RouteHandler):
         objs = {}
         for b in busses:
             obj = self.bus.get_object(b, path, introspect=False)
-            iface = dbus.Interface(obj, OpenBMCMapper.ENUMERATE_IFACE)
+            iface = dbus.Interface(obj, obmc.mapper.ENUMERATE_IFACE)
             objs.update(iface.enumerate())
         return objs
 
@@ -275,7 +277,7 @@ class MethodHandler(RouteHandler):
         data = iface.Introspect()
         parser = IntrospectionNodeParser(
             ElementTree.fromstring(data),
-            intf_match=ListMatch(interfaces))
+            intf_match=obmc.utils.misc.ListMatch(interfaces))
         for x, y in parser.get_interfaces().iteritems():
             m = self.find_method_in_interface(
                 method, obj, x, y.get('method'))
@@ -722,7 +724,7 @@ class RestApp(Bottle):
     def __init__(self, bus):
         super(RestApp, self).__init__(autojson=False)
         self.bus = bus
-        self.mapper = Mapper(bus)
+        self.mapper = obmc.mapper.Mapper(bus)
 
         self.install_hooks()
         self.install_plugins()

@@ -90,6 +90,7 @@ class RouteHandler(object):
         self.mapper = obmc.mapper.Mapper(bus)
         self._verbs = makelist(verbs)
         self._rules = rules
+        self.intf_match = obmc.utils.misc.org_dot_openbmc_match
 
     def _setup(self, **kw):
         request.route_data = {}
@@ -191,53 +192,65 @@ class ListHandler(RouteHandler):
     def do_get(self, path='/'):
         objs = {}
         mapper_data = request.route_data['map']
-        tree = obmc.utils.pathreee.PathTree()
-        for x, y in mapper_data.iteritems():
-            tree[x] = y
+        managers = {}
+        owners = []
 
+        # look for objectmanager implementations as they result
+        # in fewer dbus calls
+        for path, bus_data in mapper_data.iteritems():
+            for owner, interfaces in bus_data.iteritems():
+                owners.append(owner)
+                if dbus.BUS_DAEMON_IFACE + '.ObjectManager' in interfaces:
+                    managers[owner] = path
+
+        # also look in the parent objects
+        ancestors = self.mapper.get_ancestors(path)
+
+        # finally check the root for one too
         try:
-            # Check to see if the root path implements
-            # enumerate in addition to any sub tree
-            # objects.
-            root = self.try_mapper_call(
-                self.mapper.get_object, path=path)
-            mapper_data[path] = root
-        except:
-            pass
+            ancestors.update({path: self.mapper.get_object(path)})
+        except dbus.exceptions.DBusException, e:
+            if e.get_dbus_name() != obmc.mapper.MAPPER_NOT_FOUND:
+                raise
 
-        have_enumerate = [
-            (x[0], self.enumerate_capable(*x))
-            for x in mapper_data.iteritems() if self.enumerate_capable(*x)]
+        for path, bus_data in ancestors.iteritems():
+            for owner, interfaces in bus_data.iteritems():
+                if dbus.BUS_DAEMON_IFACE + '.ObjectManager' in interfaces:
+                    managers[owner] = path
 
-        for x, y in have_enumerate:
-            objs.update(self.call_enumerate(x, y))
-            tmp = tree[x]
-            # remove the subtree
-            del tree[x]
-            # add the new leaf back since enumerate results don't
-            # include the object enumerate is being invoked on
-            tree[x] = tmp
+        # make all the manager gmo (get managed objects) calls
+        results = {}
+        for owner, path in managers.iteritems():
+            if owner not in owners:
+                continue
+            obj = self.bus.get_object(owner, path, introspect=False)
+            iface = dbus.Interface(
+                obj, dbus.BUS_DAEMON_IFACE + '.ObjectManager')
+
+            # flatten (remove interface names) gmo results
+            for path, interfaces in iface.GetManagedObjects().iteritems():
+                if path not in mapper_data.iterkeys():
+                    continue
+                properties = {}
+                for iface, props in interfaces.iteritems():
+                    properties.update(props)
+                results.setdefault(path, {}).setdefault(owner, properties)
 
         # make dbus calls for any remaining objects
-        for x, y in tree.dataitems():
-            objs[x] = self.app.instance_handler.do_get(x)
+        for path, bus_data in mapper_data.iteritems():
+            for owner, interfaces in bus_data.iteritems():
+                if results.setdefault(path, {}).setdefault(owner, {}):
+                    continue
+                results.setdefault(path, {}).setdefault(
+                    owner,
+                    self.app.instance_handler.get_properties_on_bus(
+                        path, owner, interfaces))
 
-        return objs
-
-    @staticmethod
-    def enumerate_capable(path, bus_data):
-        busses = []
-        for name, ifaces in bus_data.iteritems():
-            if obmc.mapper.ENUMERATE_IFACE in ifaces:
-                busses.append(name)
-        return busses
-
-    def call_enumerate(self, path, busses):
         objs = {}
-        for b in busses:
-            obj = self.bus.get_object(b, path, introspect=False)
-            iface = dbus.Interface(obj, obmc.mapper.ENUMERATE_IFACE)
-            objs.update(iface.enumerate())
+        for path, owners in results.iteritems():
+            for owner, properties in owners.iteritems():
+                objs.setdefault(path, {}).update(properties)
+
         return objs
 
 
@@ -442,6 +455,8 @@ class InstanceHandler(RouteHandler):
         properties_iface = dbus.Interface(
             obj, dbus_interface=dbus.PROPERTIES_IFACE)
         for i in interfaces:
+            if not self.intf_match(i):
+                continue
             properties.update(self.get_properties_on_iface(
                 properties_iface, i))
 

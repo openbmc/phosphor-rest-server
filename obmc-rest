@@ -23,764 +23,783 @@ DELETE_IFACE = 'org.openbmc.Object.Delete'
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
 
+
 def valid_user(session, *a, **kw):
-	''' Authorization plugin callback that checks that the user is logged in. '''
-	if session is None:
-		abort(403, 'Login required')
+    ''' Authorization plugin callback that checks
+    that the user is logged in. '''
+    if session is None:
+        abort(403, 'Login required')
+
 
 class UserInGroup:
-	''' Authorization plugin callback that checks that the user is logged in
-	and a member of a group. '''
-	def __init__(self, group):
-		self.group = group
+    ''' Authorization plugin callback that checks that the user is logged in
+    and a member of a group. '''
+    def __init__(self, group):
+        self.group = group
 
-	def __call__(self, session, *a, **kw):
-		valid_user(session, *a, **kw)
-		res = False
+    def __call__(self, session, *a, **kw):
+        valid_user(session, *a, **kw)
+        res = False
 
-		try:
-			res = session['user'] in grp.getgrnam(self.group)[3]
-		except KeyError:
-			pass
+        try:
+            res = session['user'] in grp.getgrnam(self.group)[3]
+        except KeyError:
+            pass
 
-		if not res:
-			abort(403, 'Insufficient access')
+        if not res:
+            abort(403, 'Insufficient access')
+
 
 def find_case_insensitive(value, lst):
-	return next((x for x in lst if x.lower() == value.lower()), None)
+    return next((x for x in lst if x.lower() == value.lower()), None)
+
 
 def makelist(data):
-	if isinstance(data, list):
-		return data
-	elif data:
-		return [data]
-	else:
-		return []
+    if isinstance(data, list):
+        return data
+    elif data:
+        return [data]
+    else:
+        return []
+
 
 class RouteHandler(object):
-	_require_auth = makelist(valid_user)
-	def __init__(self, app, bus, verbs, rules):
-		self.app = app
-		self.bus = bus
-		self.mapper = Mapper(bus)
-		self._verbs = makelist(verbs)
-		self._rules = rules
+    _require_auth = makelist(valid_user)
 
-	def _setup(self, **kw):
-		request.route_data = {}
-		if request.method in self._verbs:
-			return self.setup(**kw)
-		else:
-			self.find(**kw)
-			raise HTTPError(405, "Method not allowed.",
-					Allow=','.join(self._verbs))
+    def __init__(self, app, bus, verbs, rules):
+        self.app = app
+        self.bus = bus
+        self.mapper = Mapper(bus)
+        self._verbs = makelist(verbs)
+        self._rules = rules
 
-	def __call__(self, **kw):
-		return getattr(self, 'do_' + request.method.lower())(**kw)
+    def _setup(self, **kw):
+        request.route_data = {}
+        if request.method in self._verbs:
+            return self.setup(**kw)
+        else:
+            self.find(**kw)
+            raise HTTPError(
+                405, "Method not allowed.", Allow=','.join(self._verbs))
 
-	def install(self):
-		self.app.route(self._rules, callback = self,
-				method = ['GET', 'PUT', 'PATCH', 'POST', 'DELETE'])
+    def __call__(self, **kw):
+        return getattr(self, 'do_' + request.method.lower())(**kw)
 
-	@staticmethod
-	def try_mapper_call(f, callback = None, **kw):
-		try:
-			return f(**kw)
-		except dbus.exceptions.DBusException, e:
-			if e.get_dbus_name() != OpenBMCMapper.MAPPER_NOT_FOUND:
-				raise
-			if callback is None:
-				def callback(e, **kw):
-					abort(404, str(e))
+    def install(self):
+        self.app.route(
+            self._rules, callback=self,
+            method=['GET', 'PUT', 'PATCH', 'POST', 'DELETE'])
 
-			callback(e, **kw)
+    @staticmethod
+    def try_mapper_call(f, callback=None, **kw):
+        try:
+            return f(**kw)
+        except dbus.exceptions.DBusException, e:
+            if e.get_dbus_name() != OpenBMCMapper.MAPPER_NOT_FOUND:
+                raise
+            if callback is None:
+                def callback(e, **kw):
+                    abort(404, str(e))
 
-	@staticmethod
-	def try_properties_interface(f, *a):
-		try:
-			return f(*a)
-		except dbus.exceptions.DBusException, e:
-			if DBUS_UNKNOWN_INTERFACE in e.get_dbus_message():
-				# interface doesn't have any properties
-				return None
-			if DBUS_UNKNOWN_METHOD == e.get_dbus_name():
-				# properties interface not implemented at all
-				return None
-			raise
+            callback(e, **kw)
+
+    @staticmethod
+    def try_properties_interface(f, *a):
+        try:
+            return f(*a)
+        except dbus.exceptions.DBusException, e:
+            if DBUS_UNKNOWN_INTERFACE in e.get_dbus_message():
+                # interface doesn't have any properties
+                return None
+            if DBUS_UNKNOWN_METHOD == e.get_dbus_name():
+                # properties interface not implemented at all
+                return None
+            raise
+
 
 class DirectoryHandler(RouteHandler):
-	verbs = 'GET'
-	rules = '<path:path>/'
+    verbs = 'GET'
+    rules = '<path:path>/'
 
-	def __init__(self, app, bus):
-		super(DirectoryHandler, self).__init__(
-				app, bus, self.verbs, self.rules)
+    def __init__(self, app, bus):
+        super(DirectoryHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
 
-	def find(self, path = '/'):
-		return self.try_mapper_call(
-				self.mapper.get_subtree_paths,
-				path = path, depth = 1)
+    def find(self, path='/'):
+        return self.try_mapper_call(
+            self.mapper.get_subtree_paths, path=path, depth=1)
 
-	def setup(self, path = '/'):
-		request.route_data['map'] = self.find(path)
+    def setup(self, path='/'):
+        request.route_data['map'] = self.find(path)
 
-	def do_get(self, path = '/'):
-		return request.route_data['map']
+    def do_get(self, path='/'):
+        return request.route_data['map']
+
 
 class ListNamesHandler(RouteHandler):
-	verbs = 'GET'
-	rules = ['/list', '<path:path>/list']
+    verbs = 'GET'
+    rules = ['/list', '<path:path>/list']
 
-	def __init__(self, app, bus):
-		super(ListNamesHandler, self).__init__(
-				app, bus, self.verbs, self.rules)
+    def __init__(self, app, bus):
+        super(ListNamesHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
 
-	def find(self, path = '/'):
-		return self.try_mapper_call(
-				self.mapper.get_subtree, path = path).keys()
+    def find(self, path='/'):
+        return self.try_mapper_call(
+            self.mapper.get_subtree, path=path).keys()
 
-	def setup(self, path = '/'):
-		request.route_data['map'] = self.find(path)
+    def setup(self, path='/'):
+        request.route_data['map'] = self.find(path)
 
-	def do_get(self, path = '/'):
-		return request.route_data['map']
+    def do_get(self, path='/'):
+        return request.route_data['map']
+
 
 class ListHandler(RouteHandler):
-	verbs = 'GET'
-	rules = ['/enumerate', '<path:path>/enumerate']
+    verbs = 'GET'
+    rules = ['/enumerate', '<path:path>/enumerate']
 
-	def __init__(self, app, bus):
-		super(ListHandler, self).__init__(
-				app, bus, self.verbs, self.rules)
+    def __init__(self, app, bus):
+        super(ListHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
 
-	def find(self, path = '/'):
-		return self.try_mapper_call(
-				self.mapper.get_subtree, path = path)
+    def find(self, path='/'):
+        return self.try_mapper_call(
+            self.mapper.get_subtree, path=path)
 
-	def setup(self, path = '/'):
-		request.route_data['map'] = self.find(path)
+    def setup(self, path='/'):
+        request.route_data['map'] = self.find(path)
 
-	def do_get(self, path = '/'):
-		objs = {}
-		mapper_data = request.route_data['map']
-		tree = PathTree()
-		for x,y in mapper_data.iteritems():
-			tree[x] = y
+    def do_get(self, path='/'):
+        objs = {}
+        mapper_data = request.route_data['map']
+        tree = PathTree()
+        for x, y in mapper_data.iteritems():
+            tree[x] = y
 
-		try:
-			# Check to see if the root path implements
-			# enumerate in addition to any sub tree
-			# objects.
-			root = self.try_mapper_call(self.mapper.get_object,
-					path = path)
-			mapper_data[path] = root
-		except:
-			pass
+        try:
+            # Check to see if the root path implements
+            # enumerate in addition to any sub tree
+            # objects.
+            root = self.try_mapper_call(
+                self.mapper.get_object, path=path)
+            mapper_data[path] = root
+        except:
+            pass
 
-		have_enumerate = [ (x[0], self.enumerate_capable(*x)) \
-				for x in mapper_data.iteritems() \
-					if self.enumerate_capable(*x) ]
+        have_enumerate = [
+            (x[0], self.enumerate_capable(*x))
+            for x in mapper_data.iteritems() if self.enumerate_capable(*x)]
 
-		for x,y in have_enumerate:
-			objs.update(self.call_enumerate(x, y))
-			tmp = tree[x]
-			# remove the subtree
-			del tree[x]
-			# add the new leaf back since enumerate results don't
-			# include the object enumerate is being invoked on
-			tree[x] = tmp
+        for x, y in have_enumerate:
+            objs.update(self.call_enumerate(x, y))
+            tmp = tree[x]
+            # remove the subtree
+            del tree[x]
+            # add the new leaf back since enumerate results don't
+            # include the object enumerate is being invoked on
+            tree[x] = tmp
 
-		# make dbus calls for any remaining objects
-		for x,y in tree.dataitems():
-			objs[x] = self.app.instance_handler.do_get(x)
+        # make dbus calls for any remaining objects
+        for x, y in tree.dataitems():
+            objs[x] = self.app.instance_handler.do_get(x)
 
-		return objs
+        return objs
 
-	@staticmethod
-	def enumerate_capable(path, bus_data):
-		busses = []
-		for name, ifaces in bus_data.iteritems():
-			if OpenBMCMapper.ENUMERATE_IFACE in ifaces:
-				busses.append(name)
-		return busses
+    @staticmethod
+    def enumerate_capable(path, bus_data):
+        busses = []
+        for name, ifaces in bus_data.iteritems():
+            if OpenBMCMapper.ENUMERATE_IFACE in ifaces:
+                busses.append(name)
+        return busses
 
-	def call_enumerate(self, path, busses):
-		objs = {}
-		for b in busses:
-			obj = self.bus.get_object(b, path, introspect = False)
-			iface = dbus.Interface(obj, OpenBMCMapper.ENUMERATE_IFACE)
-			objs.update(iface.enumerate())
-		return objs
+    def call_enumerate(self, path, busses):
+        objs = {}
+        for b in busses:
+            obj = self.bus.get_object(b, path, introspect=False)
+            iface = dbus.Interface(obj, OpenBMCMapper.ENUMERATE_IFACE)
+            objs.update(iface.enumerate())
+        return objs
+
 
 class MethodHandler(RouteHandler):
-	verbs = 'POST'
-	rules = '<path:path>/action/<method>'
-	request_type = list
+    verbs = 'POST'
+    rules = '<path:path>/action/<method>'
+    request_type = list
 
-	def __init__(self, app, bus):
-		super(MethodHandler, self).__init__(
-				app, bus, self.verbs, self.rules)
+    def __init__(self, app, bus):
+        super(MethodHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
 
-	def find(self, path, method):
-		busses = self.try_mapper_call(self.mapper.get_object,
-				path = path)
-		for items in busses.iteritems():
-			m = self.find_method_on_bus(path, method, *items)
-			if m:
-				return m
+    def find(self, path, method):
+        busses = self.try_mapper_call(
+            self.mapper.get_object, path=path)
+        for items in busses.iteritems():
+            m = self.find_method_on_bus(path, method, *items)
+            if m:
+                return m
 
-		abort(404, _4034_msg %('method', 'found', method))
+        abort(404, _4034_msg % ('method', 'found', method))
 
-	def setup(self, path, method):
-		request.route_data['method'] = self.find(path, method)
+    def setup(self, path, method):
+        request.route_data['method'] = self.find(path, method)
 
-	def do_post(self, path, method):
-		try:
-			if request.parameter_list:
-				return request.route_data['method'](*request.parameter_list)
-			else:
-				return request.route_data['method']()
+    def do_post(self, path, method):
+        try:
+            if request.parameter_list:
+                return request.route_data['method'](*request.parameter_list)
+            else:
+                return request.route_data['method']()
 
-		except dbus.exceptions.DBusException, e:
-			if e.get_dbus_name() == DBUS_INVALID_ARGS:
-				abort(400, str(e))
-			if e.get_dbus_name() == DBUS_TYPE_ERROR:
-				abort(400, str(e))
-			raise
+        except dbus.exceptions.DBusException, e:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS:
+                abort(400, str(e))
+            if e.get_dbus_name() == DBUS_TYPE_ERROR:
+                abort(400, str(e))
+            raise
 
-	@staticmethod
-	def find_method_in_interface(method, obj, interface, methods):
-		if methods is None:
-			return None
+    @staticmethod
+    def find_method_in_interface(method, obj, interface, methods):
+        if methods is None:
+            return None
 
-		method = find_case_insensitive(method, methods.keys())
-		if method is not None:
-			iface = dbus.Interface(obj, interface)
-			return iface.get_dbus_method(method)
+        method = find_case_insensitive(method, methods.keys())
+        if method is not None:
+            iface = dbus.Interface(obj, interface)
+            return iface.get_dbus_method(method)
 
-	def find_method_on_bus(self, path, method, bus, interfaces):
-		obj = self.bus.get_object(bus, path, introspect = False)
-		iface = dbus.Interface(obj, dbus.INTROSPECTABLE_IFACE)
-		data = iface.Introspect()
-		parser = IntrospectionNodeParser(
-				ElementTree.fromstring(data),
-				intf_match = ListMatch(interfaces))
-		for x,y in parser.get_interfaces().iteritems():
-			m = self.find_method_in_interface(method, obj, x,
-					y.get('method'))
-			if m:
-				return m
+    def find_method_on_bus(self, path, method, bus, interfaces):
+        obj = self.bus.get_object(bus, path, introspect=False)
+        iface = dbus.Interface(obj, dbus.INTROSPECTABLE_IFACE)
+        data = iface.Introspect()
+        parser = IntrospectionNodeParser(
+            ElementTree.fromstring(data),
+            intf_match=ListMatch(interfaces))
+        for x, y in parser.get_interfaces().iteritems():
+            m = self.find_method_in_interface(
+                method, obj, x, y.get('method'))
+            if m:
+                return m
+
 
 class PropertyHandler(RouteHandler):
-	verbs = ['PUT', 'GET']
-	rules = '<path:path>/attr/<prop>'
+    verbs = ['PUT', 'GET']
+    rules = '<path:path>/attr/<prop>'
 
-	def __init__(self, app, bus):
-		super(PropertyHandler, self).__init__(
-				app, bus, self.verbs, self.rules)
+    def __init__(self, app, bus):
+        super(PropertyHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
 
-	def find(self, path, prop):
-		self.app.instance_handler.setup(path)
-		obj = self.app.instance_handler.do_get(path)
-		try:
-			obj[prop]
-		except KeyError, e:
-			if request.method == 'PUT':
-				abort(403, _4034_msg %('property', 'created', str(e)))
-			else:
-				abort(404, _4034_msg %('property', 'found', str(e)))
+    def find(self, path, prop):
+        self.app.instance_handler.setup(path)
+        obj = self.app.instance_handler.do_get(path)
+        try:
+            obj[prop]
+        except KeyError, e:
+            if request.method == 'PUT':
+                abort(403, _4034_msg % ('property', 'created', str(e)))
+            else:
+                abort(404, _4034_msg % ('property', 'found', str(e)))
 
-		return { path: obj }
+        return {path: obj}
 
-	def setup(self, path, prop):
-		request.route_data['obj'] = self.find(path, prop)
+    def setup(self, path, prop):
+        request.route_data['obj'] = self.find(path, prop)
 
-	def do_get(self, path, prop):
-		return request.route_data['obj'][path][prop]
+    def do_get(self, path, prop):
+        return request.route_data['obj'][path][prop]
 
-	def do_put(self, path, prop, value = None):
-		if value is None:
-			value = request.parameter_list
+    def do_put(self, path, prop, value=None):
+        if value is None:
+            value = request.parameter_list
 
-		prop, iface, properties_iface = self.get_host_interface(
-				path, prop, request.route_data['map'][path])
-		try:
-			properties_iface.Set(iface, prop, value)
-		except ValueError, e:
-			abort(400, str(e))
-		except dbus.exceptions.DBusException, e:
-			if e.get_dbus_name() == DBUS_INVALID_ARGS:
-				abort(403, str(e))
-			raise
+        prop, iface, properties_iface = self.get_host_interface(
+            path, prop, request.route_data['map'][path])
+        try:
+            properties_iface.Set(iface, prop, value)
+        except ValueError, e:
+            abort(400, str(e))
+        except dbus.exceptions.DBusException, e:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS:
+                abort(403, str(e))
+            raise
 
-	def get_host_interface(self, path, prop, bus_info):
-		for bus, interfaces in bus_info.iteritems():
-			obj = self.bus.get_object(bus, path, introspect = True)
-			properties_iface = dbus.Interface(
-				obj, dbus_interface=dbus.PROPERTIES_IFACE)
+    def get_host_interface(self, path, prop, bus_info):
+        for bus, interfaces in bus_info.iteritems():
+            obj = self.bus.get_object(bus, path, introspect=True)
+            properties_iface = dbus.Interface(
+                obj, dbus_interface=dbus.PROPERTIES_IFACE)
 
-			info = self.get_host_interface_on_bus(
-					path, prop, properties_iface,
-					bus, interfaces)
-			if info is not None:
-				prop, iface = info
-				return prop, iface, properties_iface
+            info = self.get_host_interface_on_bus(
+                path, prop, properties_iface, bus, interfaces)
+            if info is not None:
+                prop, iface = info
+                return prop, iface, properties_iface
 
-	def get_host_interface_on_bus(self, path, prop, iface, bus, interfaces):
-		for i in interfaces:
-			properties = self.try_properties_interface(iface.GetAll, i)
-			if properties is None:
-				continue
-			prop = find_case_insensitive(prop, properties.keys())
-			if prop is None:
-				continue
-			return prop, i
+    def get_host_interface_on_bus(self, path, prop, iface, bus, interfaces):
+        for i in interfaces:
+            properties = self.try_properties_interface(iface.GetAll, i)
+            if properties is None:
+                continue
+            prop = find_case_insensitive(prop, properties.keys())
+            if prop is None:
+                continue
+            return prop, i
+
 
 class SchemaHandler(RouteHandler):
-	verbs = ['GET']
-	rules = '<path:path>/schema'
+    verbs = ['GET']
+    rules = '<path:path>/schema'
 
-	def __init__(self, app, bus):
-		super(SchemaHandler, self).__init__(
-				app, bus, self.verbs, self.rules)
+    def __init__(self, app, bus):
+        super(SchemaHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
 
-	def find(self, path):
-		return self.try_mapper_call(
-			self.mapper.get_object,
-			path = path)
+    def find(self, path):
+        return self.try_mapper_call(
+            self.mapper.get_object,
+            path=path)
 
-	def setup(self, path):
-		request.route_data['map'] = self.find(path)
+    def setup(self, path):
+        request.route_data['map'] = self.find(path)
 
-	def do_get(self, path):
-		schema = {}
-		for x in request.route_data['map'].iterkeys():
-			obj = self.bus.get_object(
-					x, path, introspect = False)
-			iface = dbus.Interface(obj, dbus.INTROSPECTABLE_IFACE)
-			data = iface.Introspect()
-			parser = IntrospectionNodeParser(
-					ElementTree.fromstring(data))
-			for x,y in parser.get_interfaces().iteritems():
-				schema[x] = y
+    def do_get(self, path):
+        schema = {}
+        for x in request.route_data['map'].iterkeys():
+            obj = self.bus.get_object(x, path, introspect=False)
+            iface = dbus.Interface(obj, dbus.INTROSPECTABLE_IFACE)
+            data = iface.Introspect()
+            parser = IntrospectionNodeParser(
+                ElementTree.fromstring(data))
+            for x, y in parser.get_interfaces().iteritems():
+                schema[x] = y
 
-		return schema
+        return schema
+
 
 class InstanceHandler(RouteHandler):
-	verbs = ['GET', 'PUT', 'DELETE']
-	rules = '<path:path>'
-	request_type = dict
+    verbs = ['GET', 'PUT', 'DELETE']
+    rules = '<path:path>'
+    request_type = dict
 
-	def __init__(self, app, bus):
-		super(InstanceHandler, self).__init__(
-				app, bus, self.verbs, self.rules)
+    def __init__(self, app, bus):
+        super(InstanceHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
 
-	def find(self, path, callback = None):
-		return { path: self.try_mapper_call(
-			self.mapper.get_object,
-			callback,
-			path = path) }
+    def find(self, path, callback=None):
+        return {path: self.try_mapper_call(
+            self.mapper.get_object,
+            callback,
+            path=path)}
 
-	def setup(self, path):
-		callback = None
-		if request.method == 'PUT':
-			def callback(e, **kw):
-				abort(403, _4034_msg %('resource',
-					'created', path))
+    def setup(self, path):
+        callback = None
+        if request.method == 'PUT':
+            def callback(e, **kw):
+                abort(403, _4034_msg % ('resource', 'created', path))
 
-		if request.route_data.get('map') is None:
-			request.route_data['map'] = self.find(path, callback)
+        if request.route_data.get('map') is None:
+            request.route_data['map'] = self.find(path, callback)
 
-	def do_get(self, path):
-		properties = {}
-		for item in request.route_data['map'][path].iteritems():
-			properties.update(self.get_properties_on_bus(
-				path, *item))
+    def do_get(self, path):
+        properties = {}
+        for item in request.route_data['map'][path].iteritems():
+            properties.update(self.get_properties_on_bus(
+                path, *item))
 
-		return properties
+        return properties
 
-	@staticmethod
-	def get_properties_on_iface(properties_iface, iface):
-		properties = InstanceHandler.try_properties_interface(
-				properties_iface.GetAll, iface)
-		if properties is None:
-			return {}
-		return properties
+    @staticmethod
+    def get_properties_on_iface(properties_iface, iface):
+        properties = InstanceHandler.try_properties_interface(
+            properties_iface.GetAll, iface)
+        if properties is None:
+            return {}
+        return properties
 
-	def get_properties_on_bus(self, path, bus, interfaces):
-		properties = {}
-		obj = self.bus.get_object(bus, path, introspect = False)
-		properties_iface = dbus.Interface(
-				obj, dbus_interface=dbus.PROPERTIES_IFACE)
-		for i in interfaces:
-			properties.update(self.get_properties_on_iface(
-				properties_iface, i))
+    def get_properties_on_bus(self, path, bus, interfaces):
+        properties = {}
+        obj = self.bus.get_object(bus, path, introspect=False)
+        properties_iface = dbus.Interface(
+            obj, dbus_interface=dbus.PROPERTIES_IFACE)
+        for i in interfaces:
+            properties.update(self.get_properties_on_iface(
+                properties_iface, i))
 
-		return properties
+        return properties
 
-	def do_put(self, path):
-		# make sure all properties exist in the request
-		obj = set(self.do_get(path).keys())
-		req = set(request.parameter_list.keys())
+    def do_put(self, path):
+        # make sure all properties exist in the request
+        obj = set(self.do_get(path).keys())
+        req = set(request.parameter_list.keys())
 
-		diff = list(obj.difference(req))
-		if diff:
-			abort(403, _4034_msg %('resource', 'removed',
-				'%s/attr/%s' %(path, diff[0])))
+        diff = list(obj.difference(req))
+        if diff:
+            abort(403, _4034_msg % (
+                'resource', 'removed', '%s/attr/%s' % (path, diff[0])))
 
-		diff = list(req.difference(obj))
-		if diff:
-			abort(403, _4034_msg %('resource', 'created',
-				'%s/attr/%s' %(path, diff[0])))
+        diff = list(req.difference(obj))
+        if diff:
+            abort(403, _4034_msg % (
+                'resource', 'created', '%s/attr/%s' % (path, diff[0])))
 
-		for p,v in request.parameter_list.iteritems():
-			self.app.property_handler.do_put(
-					path, p, v)
+        for p, v in request.parameter_list.iteritems():
+            self.app.property_handler.do_put(
+                path, p, v)
 
-	def do_delete(self, path):
-		for bus_info in request.route_data['map'][path].iteritems():
-			if self.bus_missing_delete(path, *bus_info):
-				abort(403, _4034_msg %('resource', 'removed',
-					path))
+    def do_delete(self, path):
+        for bus_info in request.route_data['map'][path].iteritems():
+            if self.bus_missing_delete(path, *bus_info):
+                abort(403, _4034_msg % ('resource', 'removed', path))
 
-		for bus in request.route_data['map'][path].iterkeys():
-			self.delete_on_bus(path, bus)
+        for bus in request.route_data['map'][path].iterkeys():
+            self.delete_on_bus(path, bus)
 
-	def bus_missing_delete(self, path, bus, interfaces):
-		return DELETE_IFACE not in interfaces
+    def bus_missing_delete(self, path, bus, interfaces):
+        return DELETE_IFACE not in interfaces
 
-	def delete_on_bus(self, path, bus):
-		obj = self.bus.get_object(bus, path, introspect = False)
-		delete_iface = dbus.Interface(
-				obj, dbus_interface = DELETE_IFACE)
-		delete_iface.Delete()
+    def delete_on_bus(self, path, bus):
+        obj = self.bus.get_object(bus, path, introspect=False)
+        delete_iface = dbus.Interface(
+            obj, dbus_interface=DELETE_IFACE)
+        delete_iface.Delete()
+
 
 class SessionHandler(MethodHandler):
-	''' Handles the /login and /logout routes, manages server side session store and
-	session cookies.  '''
+    ''' Handles the /login and /logout routes, manages
+    server side session store and session cookies.  '''
 
-	rules = ['/login', '/logout']
-	login_str = "User '%s' logged %s"
-	bad_passwd_str = "Invalid username or password"
-	no_user_str = "No user logged in"
-	bad_json_str = "Expecting request format { 'data': [<username>, <password>] }, got '%s'"
-	_require_auth = None
-	MAX_SESSIONS = 16
+    rules = ['/login', '/logout']
+    login_str = "User '%s' logged %s"
+    bad_passwd_str = "Invalid username or password"
+    no_user_str = "No user logged in"
+    bad_json_str = "Expecting request format { 'data': " \
+        "[<username>, <password>] }, got '%s'"
+    _require_auth = None
+    MAX_SESSIONS = 16
 
-	def __init__(self, app, bus):
-		super(SessionHandler, self).__init__(
-				app, bus)
-		self.hmac_key = os.urandom(128)
-		self.session_store = []
+    def __init__(self, app, bus):
+        super(SessionHandler, self).__init__(
+            app, bus)
+        self.hmac_key = os.urandom(128)
+        self.session_store = []
 
-	@staticmethod
-	def authenticate(username, clear):
-		try:
-			encoded = spwd.getspnam(username)[1]
-			return encoded == crypt.crypt(clear, encoded)
-		except KeyError:
-			return False
+    @staticmethod
+    def authenticate(username, clear):
+        try:
+            encoded = spwd.getspnam(username)[1]
+            return encoded == crypt.crypt(clear, encoded)
+        except KeyError:
+            return False
 
-	def invalidate_session(self, session):
-		try:
-			self.session_store.remove(session)
-		except ValueError:
-			pass
+    def invalidate_session(self, session):
+        try:
+            self.session_store.remove(session)
+        except ValueError:
+            pass
 
-	def new_session(self):
-		sid = os.urandom(32)
-		if self.MAX_SESSIONS <= len(self.session_store):
-			self.session_store.pop()
-		self.session_store.insert(0, {'sid': sid})
+    def new_session(self):
+        sid = os.urandom(32)
+        if self.MAX_SESSIONS <= len(self.session_store):
+            self.session_store.pop()
+        self.session_store.insert(0, {'sid': sid})
 
-		return self.session_store[0]
+        return self.session_store[0]
 
-	def get_session(self, sid):
-		sids = [ x['sid'] for x in self.session_store ]
-		try:
-			return self.session_store[sids.index(sid)]
-		except ValueError:
-			return None
+    def get_session(self, sid):
+        sids = [x['sid'] for x in self.session_store]
+        try:
+            return self.session_store[sids.index(sid)]
+        except ValueError:
+            return None
 
-	def get_session_from_cookie(self):
-		return self.get_session(
-				request.get_cookie('sid',
-					secret = self.hmac_key))
+    def get_session_from_cookie(self):
+        return self.get_session(
+            request.get_cookie(
+                'sid', secret=self.hmac_key))
 
-	def do_post(self, **kw):
-		if request.path == '/login':
-			return self.do_login(**kw)
-		else:
-			return self.do_logout(**kw)
+    def do_post(self, **kw):
+        if request.path == '/login':
+            return self.do_login(**kw)
+        else:
+            return self.do_logout(**kw)
 
-	def do_logout(self, **kw):
-		session = self.get_session_from_cookie()
-		if session is not None:
-			user = session['user']
-			self.invalidate_session(session)
-			response.delete_cookie('sid')
-			return self.login_str %(user, 'out')
+    def do_logout(self, **kw):
+        session = self.get_session_from_cookie()
+        if session is not None:
+            user = session['user']
+            self.invalidate_session(session)
+            response.delete_cookie('sid')
+            return self.login_str % (user, 'out')
 
-		return self.no_user_str
+        return self.no_user_str
 
-	def do_login(self, **kw):
-		session = self.get_session_from_cookie()
-		if session is not None:
-			return self.login_str %(session['user'], 'in')
+    def do_login(self, **kw):
+        session = self.get_session_from_cookie()
+        if session is not None:
+            return self.login_str % (session['user'], 'in')
 
-		if len(request.parameter_list) != 2:
-			abort(400, self.bad_json_str %(request.json))
+        if len(request.parameter_list) != 2:
+            abort(400, self.bad_json_str % (request.json))
 
-		if not self.authenticate(*request.parameter_list):
-			return self.bad_passwd_str
+        if not self.authenticate(*request.parameter_list):
+            return self.bad_passwd_str
 
-		user = request.parameter_list[0]
-		session = self.new_session()
-		session['user'] = user
-		response.set_cookie('sid', session['sid'], secret = self.hmac_key,
-				secure = True,
-				httponly = True)
-		return self.login_str %(user, 'in')
+        user = request.parameter_list[0]
+        session = self.new_session()
+        session['user'] = user
+        response.set_cookie(
+            'sid', session['sid'], secret=self.hmac_key,
+            secure=True,
+            httponly=True)
+        return self.login_str % (user, 'in')
 
-	def find(self, **kw):
-		pass
+    def find(self, **kw):
+        pass
 
-	def setup(self, **kw):
-		pass
+    def setup(self, **kw):
+        pass
+
 
 class AuthorizationPlugin(object):
-	''' Invokes an optional list of authorization callbacks. '''
+    ''' Invokes an optional list of authorization callbacks. '''
 
-	name = 'authorization'
-	api = 2
+    name = 'authorization'
+    api = 2
 
-	class Compose:
-		def __init__(self, validators, callback, session_mgr):
-			self.validators = validators
-			self.callback = callback
-			self.session_mgr = session_mgr
+    class Compose:
+        def __init__(self, validators, callback, session_mgr):
+            self.validators = validators
+            self.callback = callback
+            self.session_mgr = session_mgr
 
-		def __call__(self, *a, **kw):
-			sid = request.get_cookie('sid', secret = self.session_mgr.hmac_key)
-			session = self.session_mgr.get_session(sid)
-			for x in self.validators:
-				x(session, *a, **kw)
+        def __call__(self, *a, **kw):
+            sid = request.get_cookie('sid', secret=self.session_mgr.hmac_key)
+            session = self.session_mgr.get_session(sid)
+            for x in self.validators:
+                x(session, *a, **kw)
 
-			return self.callback(*a, **kw)
+            return self.callback(*a, **kw)
 
-	def apply(self, callback, route):
-		undecorated = route.get_undecorated_callback()
-		if not isinstance(undecorated, RouteHandler):
-			return callback
+    def apply(self, callback, route):
+        undecorated = route.get_undecorated_callback()
+        if not isinstance(undecorated, RouteHandler):
+            return callback
 
-		auth_types = getattr(undecorated,
-				'_require_auth', None)
-		if not auth_types:
-			return callback
+        auth_types = getattr(
+            undecorated, '_require_auth', None)
+        if not auth_types:
+            return callback
 
-		return self.Compose(auth_types, callback,
-				undecorated.app.session_handler)
+        return self.Compose(
+            auth_types, callback, undecorated.app.session_handler)
+
 
 class JsonApiRequestPlugin(object):
-	''' Ensures request content satisfies the OpenBMC json api format. '''
-	name = 'json_api_request'
-	api = 2
+    ''' Ensures request content satisfies the OpenBMC json api format. '''
+    name = 'json_api_request'
+    api = 2
 
-	error_str = "Expecting request format { 'data': <value> }, got '%s'"
-	type_error_str = "Unsupported Content-Type: '%s'"
-	json_type = "application/json"
-	request_methods = ['PUT', 'POST', 'PATCH']
+    error_str = "Expecting request format { 'data': <value> }, got '%s'"
+    type_error_str = "Unsupported Content-Type: '%s'"
+    json_type = "application/json"
+    request_methods = ['PUT', 'POST', 'PATCH']
 
-	@staticmethod
-	def content_expected():
-		return request.method in JsonApiRequestPlugin.request_methods
+    @staticmethod
+    def content_expected():
+        return request.method in JsonApiRequestPlugin.request_methods
 
-	def validate_request(self):
-		if request.content_length > 0 and \
-				request.content_type != self.json_type:
-			abort(415, self.type_error_str %(request.content_type))
+    def validate_request(self):
+        if request.content_length > 0 and \
+                request.content_type != self.json_type:
+            abort(415, self.type_error_str % request.content_type)
 
-		try:
-			request.parameter_list = request.json.get('data')
-		except ValueError, e:
-			abort(400, str(e))
-		except (AttributeError, KeyError, TypeError):
-			abort(400, self.error_str %(request.json))
+        try:
+            request.parameter_list = request.json.get('data')
+        except ValueError, e:
+            abort(400, str(e))
+        except (AttributeError, KeyError, TypeError):
+            abort(400, self.error_str % request.json)
 
-	def apply(self, callback, route):
-		verbs = getattr(route.get_undecorated_callback(),
-				'_verbs', None)
-		if verbs is None:
-			return callback
+    def apply(self, callback, route):
+        verbs = getattr(
+            route.get_undecorated_callback(), '_verbs', None)
+        if verbs is None:
+            return callback
 
-		if not set(self.request_methods).intersection(verbs):
-			return callback
+        if not set(self.request_methods).intersection(verbs):
+            return callback
 
-		def wrap(*a, **kw):
-			if self.content_expected():
-				self.validate_request()
-			return callback(*a, **kw)
+        def wrap(*a, **kw):
+            if self.content_expected():
+                self.validate_request()
+            return callback(*a, **kw)
 
-		return wrap
+        return wrap
+
 
 class JsonApiRequestTypePlugin(object):
-	''' Ensures request content type satisfies the OpenBMC json api format. '''
-	name = 'json_api_method_request'
-	api = 2
+    ''' Ensures request content type satisfies the OpenBMC json api format. '''
+    name = 'json_api_method_request'
+    api = 2
 
-	error_str = "Expecting request format { 'data': %s }, got '%s'"
+    error_str = "Expecting request format { 'data': %s }, got '%s'"
 
-	def apply(self, callback, route):
-		request_type = getattr(route.get_undecorated_callback(),
-				'request_type', None)
-		if request_type is None:
-			return callback
+    def apply(self, callback, route):
+        request_type = getattr(
+            route.get_undecorated_callback(), 'request_type', None)
+        if request_type is None:
+            return callback
 
-		def validate_request():
-			if not isinstance(request.parameter_list, request_type):
-				abort(400, self.error_str %(str(request_type), request.json))
+        def validate_request():
+            if not isinstance(request.parameter_list, request_type):
+                abort(400, self.error_str % (str(request_type), request.json))
 
-		def wrap(*a, **kw):
-			if JsonApiRequestPlugin.content_expected():
-				validate_request()
-			return callback(*a, **kw)
+        def wrap(*a, **kw):
+            if JsonApiRequestPlugin.content_expected():
+                validate_request()
+            return callback(*a, **kw)
 
-		return wrap
+        return wrap
+
 
 class JsonApiResponsePlugin(object):
-	''' Emits normal responses in the OpenBMC json api format. '''
-	name = 'json_api_response'
-	api = 2
+    ''' Emits normal responses in the OpenBMC json api format. '''
+    name = 'json_api_response'
+    api = 2
 
-	def apply(self, callback, route):
-		def wrap(*a, **kw):
-			resp = { 'data': callback(*a, **kw) }
-			resp['status'] = 'ok'
-			resp['message'] = response.status_line
-			return resp
-		return wrap
+    def apply(self, callback, route):
+        def wrap(*a, **kw):
+            resp = {'data': callback(*a, **kw)}
+            resp['status'] = 'ok'
+            resp['message'] = response.status_line
+            return resp
+        return wrap
+
 
 class JsonApiErrorsPlugin(object):
-	''' Emits error responses in the OpenBMC json api format. '''
-	name = 'json_api_errors'
-	api = 2
+    ''' Emits error responses in the OpenBMC json api format. '''
+    name = 'json_api_errors'
+    api = 2
 
-	def __init__(self, **kw):
-		self.app = None
-		self.function_type = None
-		self.original = None
-		self.json_opts = { x:y for x,y in kw.iteritems() \
-			if x in ['indent','sort_keys'] }
+    def __init__(self, **kw):
+        self.app = None
+        self.function_type = None
+        self.original = None
+        self.json_opts = {
+            x: y for x, y in kw.iteritems()
+            if x in ['indent', 'sort_keys']}
 
-	def setup(self, app):
-		self.app = app
-		self.function_type = type(app.default_error_handler)
-		self.original = app.default_error_handler
-		self.app.default_error_handler = self.function_type(
-			self.json_errors, app, Bottle)
+    def setup(self, app):
+        self.app = app
+        self.function_type = type(app.default_error_handler)
+        self.original = app.default_error_handler
+        self.app.default_error_handler = self.function_type(
+            self.json_errors, app, Bottle)
 
-	def apply(self, callback, route):
-		return callback
+    def apply(self, callback, route):
+        return callback
 
-	def close(self):
-		self.app.default_error_handler = self.function_type(
-				self.original, self.app, Bottle)
+    def close(self):
+        self.app.default_error_handler = self.function_type(
+            self.original, self.app, Bottle)
 
-	def json_errors(self, res, error):
-		response_object = {'status': 'error', 'data': {} }
-		response_object['message'] = error.status_line
-		response_object['data']['description'] = str(error.body)
-		if error.status_code == 500:
-			response_object['data']['exception'] = repr(error.exception)
-			response_object['data']['traceback'] = error.traceback.splitlines()
+    def json_errors(self, res, error):
+        response_object = {'status': 'error', 'data': {}}
+        response_object['message'] = error.status_line
+        response_object['data']['description'] = str(error.body)
+        if error.status_code == 500:
+            response_object['data']['exception'] = repr(error.exception)
+            response_object['data']['traceback'] = error.traceback.splitlines()
 
-		json_response = json.dumps(response_object, **self.json_opts)
-		response.content_type = 'application/json'
-		return json_response
+        json_response = json.dumps(response_object, **self.json_opts)
+        response.content_type = 'application/json'
+        return json_response
+
 
 class RestApp(Bottle):
-	def __init__(self, bus):
-		super(RestApp, self).__init__(autojson = False)
-		self.bus = bus
-		self.mapper = Mapper(bus)
+    def __init__(self, bus):
+        super(RestApp, self).__init__(autojson=False)
+        self.bus = bus
+        self.mapper = Mapper(bus)
 
-		self.install_hooks()
-		self.install_plugins()
-		self.create_handlers()
-		self.install_handlers()
+        self.install_hooks()
+        self.install_plugins()
+        self.create_handlers()
+        self.install_handlers()
 
-	def install_plugins(self):
-		# install json api plugins
-		json_kw = {'indent': 2, 'sort_keys': True}
-		self.install(JSONPlugin(**json_kw))
-		self.install(JsonApiErrorsPlugin(**json_kw))
-		self.install(AuthorizationPlugin())
-		self.install(JsonApiResponsePlugin())
-		self.install(JsonApiRequestPlugin())
-		self.install(JsonApiRequestTypePlugin())
+    def install_plugins(self):
+        # install json api plugins
+        json_kw = {'indent': 2, 'sort_keys': True}
+        self.install(JSONPlugin(**json_kw))
+        self.install(JsonApiErrorsPlugin(**json_kw))
+        self.install(AuthorizationPlugin())
+        self.install(JsonApiResponsePlugin())
+        self.install(JsonApiRequestPlugin())
+        self.install(JsonApiRequestTypePlugin())
 
-	def install_hooks(self):
-		self.real_router_match = self.router.match
-		self.router.match = self.custom_router_match
-		self.add_hook('before_request', self.strip_extra_slashes)
+    def install_hooks(self):
+        self.real_router_match = self.router.match
+        self.router.match = self.custom_router_match
+        self.add_hook('before_request', self.strip_extra_slashes)
 
-	def create_handlers(self):
-		# create route handlers
-		self.session_handler = SessionHandler(self, self.bus)
-		self.directory_handler = DirectoryHandler(self, self.bus)
-		self.list_names_handler = ListNamesHandler(self, self.bus)
-		self.list_handler = ListHandler(self, self.bus)
-		self.method_handler = MethodHandler(self, self.bus)
-		self.property_handler = PropertyHandler(self, self.bus)
-		self.schema_handler = SchemaHandler(self, self.bus)
-		self.instance_handler = InstanceHandler(self, self.bus)
+    def create_handlers(self):
+        # create route handlers
+        self.session_handler = SessionHandler(self, self.bus)
+        self.directory_handler = DirectoryHandler(self, self.bus)
+        self.list_names_handler = ListNamesHandler(self, self.bus)
+        self.list_handler = ListHandler(self, self.bus)
+        self.method_handler = MethodHandler(self, self.bus)
+        self.property_handler = PropertyHandler(self, self.bus)
+        self.schema_handler = SchemaHandler(self, self.bus)
+        self.instance_handler = InstanceHandler(self, self.bus)
 
-	def install_handlers(self):
-		self.session_handler.install()
-		self.directory_handler.install()
-		self.list_names_handler.install()
-		self.list_handler.install()
-		self.method_handler.install()
-		self.property_handler.install()
-		self.schema_handler.install()
-		# this has to come last, since it matches everything
-		self.instance_handler.install()
+    def install_handlers(self):
+        self.session_handler.install()
+        self.directory_handler.install()
+        self.list_names_handler.install()
+        self.list_handler.install()
+        self.method_handler.install()
+        self.property_handler.install()
+        self.schema_handler.install()
+        # this has to come last, since it matches everything
+        self.instance_handler.install()
 
-	def custom_router_match(self, environ):
-		''' The built-in Bottle algorithm for figuring out if a 404 or 405 is
-                    needed doesn't work for us since the instance rules match everything.
-                    This monkey-patch lets the route handler figure out which response is
-                    needed.  This could be accomplished with a hook but that would require
-		    calling the router match function twice.
-		'''
-		route, args = self.real_router_match(environ)
-		if isinstance(route.callback, RouteHandler):
-			route.callback._setup(**args)
+    def custom_router_match(self, environ):
+        ''' The built-in Bottle algorithm for figuring out if a 404 or 405 is
+            needed doesn't work for us since the instance rules match
+            everything. This monkey-patch lets the route handler figure
+            out which response is needed.  This could be accomplished
+            with a hook but that would require calling the router match
+            function twice.
+        '''
+        route, args = self.real_router_match(environ)
+        if isinstance(route.callback, RouteHandler):
+            route.callback._setup(**args)
 
-		return route, args
+        return route, args
 
-	@staticmethod
-	def strip_extra_slashes():
-		path = request.environ['PATH_INFO']
-		trailing = ("","/")[path[-1] == '/']
-		parts = filter(bool, path.split('/'))
-		request.environ['PATH_INFO'] = '/' + '/'.join(parts) + trailing
+    @staticmethod
+    def strip_extra_slashes():
+        path = request.environ['PATH_INFO']
+        trailing = ("", "/")[path[-1] == '/']
+        parts = filter(bool, path.split('/'))
+        request.environ['PATH_INFO'] = '/' + '/'.join(parts) + trailing
 
 if __name__ == '__main__':
-	log = logging.getLogger('Rocket.Errors')
-	log.setLevel(logging.INFO)
-	log.addHandler(logging.StreamHandler(sys.stdout))
+    log = logging.getLogger('Rocket.Errors')
+    log.setLevel(logging.INFO)
+    log.addHandler(logging.StreamHandler(sys.stdout))
 
-	bus = dbus.SystemBus()
-	app = RestApp(bus)
-	default_cert = os.path.join(sys.prefix, 'share',
-			os.path.basename(__file__), 'cert.pem')
+    bus = dbus.SystemBus()
+    app = RestApp(bus)
+    default_cert = os.path.join(
+        sys.prefix, 'share', os.path.basename(__file__), 'cert.pem')
 
-	server = Rocket(('0.0.0.0',
-			443,
-			default_cert,
-			default_cert),
-		'wsgi', {'wsgi_app': app},
-		min_threads = 1,
-		max_threads = 1)
-	server.start()
+    server = Rocket(
+        ('0.0.0.0', 443, default_cert, default_cert),
+        'wsgi', {'wsgi_app': app},
+        min_threads=1,
+        max_threads=1)
+    server.start()

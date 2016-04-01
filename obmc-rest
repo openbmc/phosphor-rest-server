@@ -34,6 +34,7 @@ import grp
 import crypt
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
+DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
 DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
 DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
 DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
@@ -128,6 +129,9 @@ class RouteHandler(object):
             return f(*a)
         except dbus.exceptions.DBusException, e:
             if DBUS_UNKNOWN_INTERFACE in e.get_dbus_message():
+                # interface doesn't have any properties
+                return None
+            if DBUS_UNKNOWN_INTERFACE_ERROR in e.get_dbus_name():
                 # interface doesn't have any properties
                 return None
             if DBUS_UNKNOWN_METHOD == e.get_dbus_name():

@@ -751,6 +751,32 @@ class JsonApiErrorsPlugin(object):
         return json_response
 
 
+class JsonpPlugin(JsonApiErrorsPlugin):
+    ''' Json javascript wrapper. '''
+    name = 'jsonp'
+    api = 2
+
+    def __init__(self, **kw):
+        super(JsonpPlugin, self).__init__(**kw)
+
+    @staticmethod
+    def to_jsonp(json):
+        jwrapper = request.query.callback or None
+        if(jwrapper):
+            response.set_header('Content-Type', 'application/javascript')
+            json = jwrapper + '(' + json + ');'
+        return json
+
+    def apply(self, callback, route):
+        def wrap(*a, **kw):
+            return self.to_jsonp(callback(*a, **kw))
+        return wrap
+
+    def json_errors(self, res, error):
+        json = super(JsonpPlugin, self).json_errors(res, error)
+        return self.to_jsonp(json)
+
+
 class RestApp(Bottle):
     def __init__(self, bus):
         super(RestApp, self).__init__(autojson=False)
@@ -765,9 +791,9 @@ class RestApp(Bottle):
     def install_plugins(self):
         # install json api plugins
         json_kw = {'indent': 2, 'sort_keys': True}
-        self.install(JSONPlugin(**json_kw))
-        self.install(JsonApiErrorsPlugin(**json_kw))
         self.install(AuthorizationPlugin())
+        self.install(JsonpPlugin(**json_kw))
+        self.install(JSONPlugin(**json_kw))
         self.install(JsonApiResponsePlugin())
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())

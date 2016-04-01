@@ -190,68 +190,9 @@ class ListHandler(RouteHandler):
         request.route_data['map'] = self.find(path)
 
     def do_get(self, path='/'):
-        objs = {}
-        mapper_data = request.route_data['map']
-        managers = {}
-        owners = []
-
-        # look for objectmanager implementations as they result
-        # in fewer dbus calls
-        for path, bus_data in mapper_data.iteritems():
-            for owner, interfaces in bus_data.iteritems():
-                owners.append(owner)
-                if dbus.BUS_DAEMON_IFACE + '.ObjectManager' in interfaces:
-                    managers[owner] = path
-
-        # also look in the parent objects
-        ancestors = self.mapper.get_ancestors(path)
-
-        # finally check the root for one too
-        try:
-            ancestors.update({path: self.mapper.get_object(path)})
-        except dbus.exceptions.DBusException, e:
-            if e.get_dbus_name() != obmc.mapper.MAPPER_NOT_FOUND:
-                raise
-
-        for path, bus_data in ancestors.iteritems():
-            for owner, interfaces in bus_data.iteritems():
-                if dbus.BUS_DAEMON_IFACE + '.ObjectManager' in interfaces:
-                    managers[owner] = path
-
-        # make all the manager gmo (get managed objects) calls
-        results = {}
-        for owner, path in managers.iteritems():
-            if owner not in owners:
-                continue
-            obj = self.bus.get_object(owner, path, introspect=False)
-            iface = dbus.Interface(
-                obj, dbus.BUS_DAEMON_IFACE + '.ObjectManager')
-
-            # flatten (remove interface names) gmo results
-            for path, interfaces in iface.GetManagedObjects().iteritems():
-                if path not in mapper_data.iterkeys():
-                    continue
-                properties = {}
-                for iface, props in interfaces.iteritems():
-                    properties.update(props)
-                results.setdefault(path, {}).setdefault(owner, properties)
-
-        # make dbus calls for any remaining objects
-        for path, bus_data in mapper_data.iteritems():
-            for owner, interfaces in bus_data.iteritems():
-                if results.setdefault(path, {}).setdefault(owner, {}):
-                    continue
-                results.setdefault(path, {}).setdefault(
-                    owner,
-                    self.app.instance_handler.get_properties_on_bus(
-                        path, owner, interfaces))
-
-        objs = {}
-        for path, owners in results.iteritems():
-            for owner, properties in owners.iteritems():
-                objs.setdefault(path, {}).update(properties)
-
-        return objs
+        return {x: y for x, y in self.mapper.enumerate_subtree(
+                path,
+                mapper_data=request.route_data['map']).dataitems()}
 
 
 class MethodHandler(RouteHandler):
@@ -434,33 +375,9 @@ class InstanceHandler(RouteHandler):
             request.route_data['map'] = self.find(path, callback)
 
     def do_get(self, path):
-        properties = {}
-        for item in request.route_data['map'][path].iteritems():
-            properties.update(self.get_properties_on_bus(
-                path, *item))
-
-        return properties
-
-    @staticmethod
-    def get_properties_on_iface(properties_iface, iface):
-        properties = InstanceHandler.try_properties_interface(
-            properties_iface.GetAll, iface)
-        if properties is None:
-            return {}
-        return properties
-
-    def get_properties_on_bus(self, path, bus, interfaces):
-        properties = {}
-        obj = self.bus.get_object(bus, path, introspect=False)
-        properties_iface = dbus.Interface(
-            obj, dbus_interface=dbus.PROPERTIES_IFACE)
-        for i in interfaces:
-            if not self.intf_match(i):
-                continue
-            properties.update(self.get_properties_on_iface(
-                properties_iface, i))
-
-        return properties
+        return self.mapper.enumerate_object(
+            path,
+            mapper_data=request.route_data['map'])
 
     def do_put(self, path):
         # make sure all properties exist in the request

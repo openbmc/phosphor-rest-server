@@ -69,27 +69,14 @@ class UserInGroup:
             abort(403, 'Insufficient access')
 
 
-def find_case_insensitive(value, lst):
-    return next((x for x in lst if x.lower() == value.lower()), None)
-
-
-def makelist(data):
-    if isinstance(data, list):
-        return data
-    elif data:
-        return [data]
-    else:
-        return []
-
-
 class RouteHandler(object):
-    _require_auth = makelist(valid_user)
+    _require_auth = obmc.utils.misc.makelist(valid_user)
 
     def __init__(self, app, bus, verbs, rules):
         self.app = app
         self.bus = bus
         self.mapper = obmc.mapper.Mapper(bus)
-        self._verbs = makelist(verbs)
+        self._verbs = obmc.utils.misc.makelist(verbs)
         self._rules = rules
         self.intf_match = obmc.utils.misc.org_dot_openbmc_match
 
@@ -240,7 +227,7 @@ class MethodHandler(RouteHandler):
         if methods is None:
             return None
 
-        method = find_case_insensitive(method, methods.keys())
+        method = obmc.utils.misc.find_case_insensitive(method, methods.keys())
         if method is not None:
             iface = dbus.Interface(obj, interface)
             return iface.get_dbus_method(method)
@@ -318,7 +305,7 @@ class PropertyHandler(RouteHandler):
             properties = self.try_properties_interface(iface.GetAll, i)
             if properties is None:
                 continue
-            prop = find_case_insensitive(prop, properties.keys())
+            prop = obmc.utils.misc.find_case_insensitive(prop, properties.keys())
             if prop is None:
                 continue
             return prop, i

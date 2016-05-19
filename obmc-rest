@@ -21,9 +21,9 @@ import sys
 import dbus
 import dbus.exceptions
 import json
-import logging
 from xml.etree import ElementTree
-from rocket import Rocket
+import gevent
+from gevent.pywsgi import WSGIServer
 from bottle import Bottle, abort, request, response, JSONPlugin, HTTPError
 import obmc.utils.misc
 import obmc.utils.pathtree
@@ -755,18 +755,19 @@ class RestApp(Bottle):
         request.environ['PATH_INFO'] = '/' + '/'.join(parts) + trailing
 
 if __name__ == '__main__':
-    log = logging.getLogger('Rocket.Errors')
-    log.setLevel(logging.INFO)
-    log.addHandler(logging.StreamHandler(sys.stdout))
-
     bus = dbus.SystemBus()
     app = RestApp(bus)
     default_cert = os.path.join(
         sys.prefix, 'share', os.path.basename(__file__), 'cert.pem')
 
-    server = Rocket(
-        ('0.0.0.0', 443, default_cert, default_cert),
-        'wsgi', {'wsgi_app': app},
-        min_threads=1,
-        max_threads=1)
-    server.start()
+    if os.environ.get('LISTEN_PID', None) == str(os.getpid()):
+        FIRST_SYSTEMD_SOCKET_FD = 3
+        bind = gevent.socket.fromfd(FIRST_SYSTEMD_SOCKET_FD,
+            gevent.socket.AF_INET,
+            gevent.socket.SOCK_STREAM)
+    else:
+        bind = ('', 443)
+
+    server = WSGIServer(
+        bind, app, keyfile=default_cert, certfile=default_cert)
+    server.serve_forever()

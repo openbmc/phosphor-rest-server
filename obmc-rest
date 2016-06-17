@@ -411,6 +411,7 @@ class SessionHandler(MethodHandler):
     ''' Handles the /login and /logout routes, manages
     server side session store and session cookies.  '''
 
+    verbs = ['POST', 'GET']
     rules = ['/login', '/logout']
     login_str = "User '%s' logged %s"
     bad_passwd_str = "Invalid username or password"
@@ -459,6 +460,10 @@ class SessionHandler(MethodHandler):
         return self.get_session(
             request.get_cookie(
                 'sid', secret=self.hmac_key))
+
+    def do_get(self, **kw):
+        if request.path == '/logout':
+            return self.do_logout(**kw)
 
     def do_post(self, **kw):
         if request.path == '/login':

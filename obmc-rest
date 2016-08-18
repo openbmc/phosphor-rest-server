@@ -181,7 +181,7 @@ class ListHandler(RouteHandler):
         request.route_data['map'] = self.find(path)
 
     def do_get(self, path='/'):
-        return {x: y for x, y in self.mapper.enumerate_subtree(
+        return {x: dbus_double_to_python(y) for x, y in self.mapper.enumerate_subtree(
                 path,
                 mapper_data=request.route_data['map']).dataitems()}
 
@@ -271,7 +271,8 @@ class PropertyHandler(RouteHandler):
         request.route_data['obj'] = self.find(path, prop)
 
     def do_get(self, path, prop):
-        return request.route_data['obj'][path][prop]
+        obj = request.route_data['obj'][path][prop]
+        return dbus_double_to_python(obj)
 
     def do_put(self, path, prop, value=None):
         if value is None:
@@ -366,9 +367,10 @@ class InstanceHandler(RouteHandler):
             request.route_data['map'] = self.find(path, callback)
 
     def do_get(self, path):
-        return self.mapper.enumerate_object(
+        obj = self.mapper.enumerate_object(
             path,
             mapper_data=request.route_data['map'])
+        return dbus_double_to_python(obj)
 
     def do_put(self, path):
         # make sure all properties exist in the request
@@ -753,6 +755,24 @@ class RestApp(Bottle):
         trailing = ("", "/")[path[-1] == '/']
         parts = filter(bool, path.split('/'))
         request.environ['PATH_INFO'] = '/' + '/'.join(parts) + trailing
+
+def dbus_double_to_python(obj, expected_type=None):
+    if isinstance(obj, dbus.Double):
+        python_obj = float(obj)
+    elif isinstance(obj, dbus.Array):
+        python_obj = [dbus_double_to_python(x) for x in obj]
+    elif isinstance(obj, dbus.Struct):
+        python_obj = tuple([dbus_double_to_python(x) for x in obj])
+    elif isinstance(obj, dbus.Dictionary):
+        python_obj = {dbus_to_python(k): dbus_double_to_python(v) for k, v in obj.items()}
+    elif isinstance(obj, list) or isinstance(obj, tuple) or isinstance(obj, set):
+        python_obj = [dbus_double_to_python(x) for x in obj]
+    elif isinstance(obj, dict):
+        python_obj = {x : dbus_double_to_python(y) for x, y in obj.iteritems()}
+    else:
+        python_obj = obj
+
+    return python_obj
 
 if __name__ == '__main__':
     log = logging.getLogger('Rocket.Errors')

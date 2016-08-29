@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Contributors Listed Below - COPYRIGHT 2016
 # [+] International Business Machines Corp.
 #
@@ -17,16 +15,12 @@
 # permissions and limitations under the License.
 
 import os
-import sys
 import dbus
 import dbus.exceptions
 import json
-import logging
 from xml.etree import ElementTree
-from rocket import Rocket
 from bottle import Bottle, abort, request, response, JSONPlugin, HTTPError
 import obmc.utils.misc
-import obmc.utils.pathtree
 from obmc.dbuslib.introspection import IntrospectionNodeParser
 import obmc.mapper
 import spwd
@@ -685,9 +679,9 @@ class JsonpPlugin(JsonApiErrorsPlugin):
         return self.to_jsonp(json)
 
 
-class RestApp(Bottle):
+class App(Bottle):
     def __init__(self):
-        super(RestApp, self).__init__(autojson=False)
+        super(App, self).__init__(autojson=False)
         self.bus = dbus.SystemBus()
         self.mapper = obmc.mapper.Mapper(self.bus)
 
@@ -753,19 +747,3 @@ class RestApp(Bottle):
         trailing = ("", "/")[path[-1] == '/']
         parts = filter(bool, path.split('/'))
         request.environ['PATH_INFO'] = '/' + '/'.join(parts) + trailing
-
-if __name__ == '__main__':
-    log = logging.getLogger('Rocket.Errors')
-    log.setLevel(logging.INFO)
-    log.addHandler(logging.StreamHandler(sys.stdout))
-
-    app = RestApp()
-    default_cert = os.path.join(
-        sys.prefix, 'share', os.path.basename(__file__), 'cert.pem')
-
-    server = Rocket(
-        ('0.0.0.0', 443, default_cert, default_cert),
-        'wsgi', {'wsgi_app': app},
-        min_threads=1,
-        max_threads=1)
-    server.start()

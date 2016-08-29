@@ -686,10 +686,10 @@ class JsonpPlugin(JsonApiErrorsPlugin):
 
 
 class RestApp(Bottle):
-    def __init__(self, bus):
+    def __init__(self):
         super(RestApp, self).__init__(autojson=False)
-        self.bus = bus
-        self.mapper = obmc.mapper.Mapper(bus)
+        self.bus = dbus.SystemBus()
+        self.mapper = obmc.mapper.Mapper(self.bus)
 
         self.install_hooks()
         self.install_plugins()
@@ -759,8 +759,7 @@ if __name__ == '__main__':
     log.setLevel(logging.INFO)
     log.addHandler(logging.StreamHandler(sys.stdout))
 
-    bus = dbus.SystemBus()
-    app = RestApp(bus)
+    app = RestApp()
     default_cert = os.path.join(
         sys.prefix, 'share', os.path.basename(__file__), 'cert.pem')
 

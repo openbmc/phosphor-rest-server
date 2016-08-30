@@ -1,7 +1,7 @@
 from distutils.core import setup
 
-setup(name='obmc-rest',
+setup(name='phosphor-rest',
       version='1.0',
-      scripts=['obmc-rest'],
-      data_files=[('obmc-rest', ['cert.pem'])],
+      scripts=['phosphor-rest'],
+      data_files=[('phosphor-rest', ['cert.pem'])],
       )

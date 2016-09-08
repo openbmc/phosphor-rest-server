@@ -41,7 +41,7 @@ def valid_user(session, *a, **kw):
     ''' Authorization plugin callback that checks
     that the user is logged in. '''
     if session is None:
-        abort(403, 'Login required')
+        abort(401, 'Login required')
 
 
 class UserInGroup:
@@ -479,7 +479,7 @@ class SessionHandler(MethodHandler):
             abort(400, self.bad_json_str % (request.json))
 
         if not self.authenticate(*request.parameter_list):
-            return self.bad_passwd_str
+            abort(401, self.bad_passwd_str)
 
         user = request.parameter_list[0]
         session = self.new_session()

@@ -96,6 +96,9 @@ class RouteHandler(object):
         try:
             return f(**kw)
         except dbus.exceptions.DBusException, e:
+            if e.get_dbus_name() == \
+                    'org.freedesktop.DBus.Error.ObjectPathInUse':
+                abort(503, str(e))
             if e.get_dbus_name() != obmc.mapper.MAPPER_NOT_FOUND:
                 raise
             if callback is None:

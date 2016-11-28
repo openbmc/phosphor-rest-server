@@ -299,7 +299,8 @@ class PropertyHandler(RouteHandler):
             properties = self.try_properties_interface(iface.GetAll, i)
             if properties is None:
                 continue
-            prop = obmc.utils.misc.find_case_insensitive(prop, properties.keys())
+            prop = obmc.utils.misc.find_case_insensitive(
+                prop, properties.keys())
             if prop is None:
                 continue
             return prop, i

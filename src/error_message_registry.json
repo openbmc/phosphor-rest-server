@@ -1,0 +1,28 @@
+{
+  "Messages": {
+    "ResourceDoesNotExist" : {
+      "Description": "The requested resource does not exist",
+      "MessageId":"ResourceDoesNotExist",
+      "NumberOfArgs": 1,
+      "Message": "The resource %1 in provided URI does not exist",
+      "Severity": "Warning",
+      "Resolution": "Update the URI for resource and resubmit the request if the operation failed"
+    },
+    "PropertyValueNotInList" : {
+      "Description": "The requested property is not in the list of properties for the resource",
+      "MessageId":"PropertyValueNotInList",
+      "NumberOfArgs": 2,
+      "Message": "The value %1 for the property %2 is not in the list of acceptable values",
+      "Severity": "Warning",
+      "Resolution": "Remove the property from the request body and resubmit the request if the operation failed"
+    },
+    "PropertyNotWriteable" : {
+      "Description": "The requested property is read only",
+      "MessageId": "PropertyNotWriteable",
+      "Message": "The property %1 is a read only property and cannot be assigned a value",
+      "NumberOfArgs": 1,
+      "Severity": "Warning",
+      "Resolution": "Remove the property from the request body and resubmit the request if the operation failed"
+    }
+  }
+}

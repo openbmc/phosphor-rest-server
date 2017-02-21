@@ -76,15 +76,22 @@ class RouteHandler(object):
 
     def _setup(self, **kw):
         request.route_data = {}
-        if request.method in self._verbs:
+        if request.method in self._verbs or (
+                request.method == 'HEAD' and 'GET' in self._verbs):
             return self.setup(**kw)
-        else:
-            self.find(**kw)
-            raise HTTPError(
-                405, "Method not allowed.", Allow=','.join(self._verbs))
+
+        # Return 404 if path not found.
+        self.find(**kw)
+
+        # Return 405.
+        raise HTTPError(
+            405, "Method not allowed.", Allow=','.join(self._verbs))
 
     def __call__(self, **kw):
         return getattr(self, 'do_' + request.method.lower())(**kw)
+
+    def do_head(self, **kw):
+        return self.do_get(**kw)
 
     def install(self):
         self.app.route(

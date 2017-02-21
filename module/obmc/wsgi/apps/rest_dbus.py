@@ -324,7 +324,7 @@ class PropertyHandler(RouteHandler):
     def get_host_interface_on_bus(self, path, prop, iface, bus, interfaces):
         for i in interfaces:
             properties = self.try_properties_interface(iface.GetAll, i)
-            if properties is None:
+            if not properties:
                 continue
             prop = obmc.utils.misc.find_case_insensitive(
                 prop, properties.keys())

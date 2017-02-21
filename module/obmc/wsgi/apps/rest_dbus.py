@@ -65,6 +65,7 @@ class UserInGroup:
 
 class RouteHandler(object):
     _require_auth = obmc.utils.misc.makelist(valid_user)
+    _enable_cors = True
 
     def __init__(self, app, bus, verbs, rules):
         self.app = app
@@ -551,6 +552,55 @@ class AuthorizationPlugin(object):
             auth_types, callback, undecorated.app.session_handler)
 
 
+class CorsPlugin(object):
+    ''' Add CORS headers. '''
+
+    name = 'cors'
+    api = 2
+
+    @staticmethod
+    def process_origin():
+        origin = request.headers.get('Origin')
+        if origin:
+            response.add_header('Access-Control-Allow-Origin', origin)
+            response.add_header(
+                'Access-Control-Allow-Credentials', 'true')
+
+    @staticmethod
+    def process_method_and_headers(verbs):
+        method = request.headers.get('Access-Control-Request-Method')
+        headers = request.headers.get('Access-Control-Request-Headers')
+        if headers:
+            headers = [x.lower() for x in headers.split(',')]
+
+        if method in verbs \
+                and headers == ['content-type']:
+            response.add_header('Access-Control-Allow-Methods', method)
+            response.add_header(
+                'Access-Control-Allow-Headers', 'Content-Type')
+
+    def __init__(self, app):
+        app.install_error_callback(self.error_callback)
+
+    def apply(self, callback, route):
+        undecorated = route.get_undecorated_callback()
+        if not isinstance(undecorated, RouteHandler):
+            return callback
+
+        if not getattr(undecorated, '_enable_cors', None):
+            return callback
+
+        def wrap(*a, **kw):
+            self.process_origin()
+            self.process_method_and_headers(undecorated._verbs)
+            return callback(*a, **kw)
+
+        return wrap
+
+    def error_callback(self, **kw):
+        self.process_origin()
+
+
 class JsonApiRequestPlugin(object):
     ''' Ensures request content satisfies the OpenBMC json api format. '''
     name = 'json_api_request'
@@ -706,6 +756,7 @@ class App(Bottle):
         # install json api plugins
         json_kw = {'indent': 2, 'sort_keys': True}
         self.install(AuthorizationPlugin())
+        self.install(CorsPlugin(self))
         self.install(JsonpPlugin(self, **json_kw))
         self.install(JsonErrorsPlugin(self, **json_kw))
         self.install(JsonApiResponsePlugin(self))

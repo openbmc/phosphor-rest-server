@@ -83,9 +83,10 @@ class RouteHandler(object):
         # Return 404 if path not found.
         self.find(**kw)
 
-        # Return 405.
-        raise HTTPError(
-            405, "Method not allowed.", Allow=','.join(self._verbs))
+        # Return 405, unless OPTIONS
+        if request.method != 'OPTIONS':
+            raise HTTPError(
+                405, "Method not allowed.", Allow=','.join(self._verbs))
 
     def __call__(self, **kw):
         return getattr(self, 'do_' + request.method.lower())(**kw)
@@ -93,10 +94,17 @@ class RouteHandler(object):
     def do_head(self, **kw):
         return self.do_get(**kw)
 
+    def do_options(self, **kw):
+        for v in self._verbs:
+            response.set_header(
+                'Allow',
+                ','.join(self._verbs + ['OPTIONS', 'HEAD']))
+        return None
+
     def install(self):
         self.app.route(
             self._rules, callback=self,
-            method=['GET', 'PUT', 'PATCH', 'POST', 'DELETE'])
+            method=['OPTIONS', 'GET', 'PUT', 'PATCH', 'POST', 'DELETE'])
 
     @staticmethod
     def try_mapper_call(f, callback=None, **kw):
@@ -523,8 +531,9 @@ class AuthorizationPlugin(object):
         def __call__(self, *a, **kw):
             sid = request.get_cookie('sid', secret=self.session_mgr.hmac_key)
             session = self.session_mgr.get_session(sid)
-            for x in self.validators:
-                x(session, *a, **kw)
+            if request.method != 'OPTIONS':
+                for x in self.validators:
+                    x(session, *a, **kw)
 
             return self.callback(*a, **kw)
 
@@ -631,15 +640,21 @@ class JsonApiResponsePlugin(object):
     name = 'json_api_response'
     api = 2
 
+    @staticmethod
+    def has_body():
+        return request.method not in ['OPTIONS']
+
     def __init__(self, app):
         app.install_error_callback(self.error_callback)
 
     def apply(self, callback, route):
         def wrap(*a, **kw):
-            resp = {'data': callback(*a, **kw)}
-            resp['status'] = 'ok'
-            resp['message'] = response.status_line
-            return resp
+            data = callback(*a, **kw)
+            if self.has_body():
+                resp = {'data': data}
+                resp['status'] = 'ok'
+                resp['message'] = response.status_line
+                return resp
         return wrap
 
     def error_callback(self, error, response_object, **kw):

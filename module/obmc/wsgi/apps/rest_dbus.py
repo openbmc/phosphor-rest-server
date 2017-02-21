@@ -76,16 +76,23 @@ class RouteHandler(object):
 
         if 'GET' in self._verbs:
             self._verbs = list(set(self._verbs + ['HEAD']))
+        if 'OPTIONS' not in self._verbs:
+            self._verbs.append('OPTIONS')
 
     def _setup(self, **kw):
         request.route_data = {}
+
         if request.method in self._verbs:
-            return self.setup(**kw)
+            if request.method != 'OPTIONS':
+                return self.setup(**kw)
 
-        # Return 404 if path not found.
-        self.find(**kw)
+            # Javascript implementations will not send credentials
+            # with an OPTIONS request.  Don't help malicious clients
+            # by checking the path here and returning a 404 if the
+            # path doesn't exist.
+            return None
 
-        # Return 405.
+        # Return 405
         raise HTTPError(
             405, "Method not allowed.", Allow=','.join(self._verbs))
 
@@ -95,10 +102,17 @@ class RouteHandler(object):
     def do_head(self, **kw):
         return self.do_get(**kw)
 
+    def do_options(self, **kw):
+        for v in self._verbs:
+            response.set_header(
+                'Allow',
+                ','.join(self._verbs))
+        return None
+
     def install(self):
         self.app.route(
             self._rules, callback=self,
-            method=['GET', 'PUT', 'PATCH', 'POST', 'DELETE'])
+            method=['OPTIONS', 'GET', 'PUT', 'PATCH', 'POST', 'DELETE'])
 
     @staticmethod
     def try_mapper_call(f, callback=None, **kw):
@@ -525,8 +539,9 @@ class AuthorizationPlugin(object):
         def __call__(self, *a, **kw):
             sid = request.get_cookie('sid', secret=self.session_mgr.hmac_key)
             session = self.session_mgr.get_session(sid)
-            for x in self.validators:
-                x(session, *a, **kw)
+            if request.method != 'OPTIONS':
+                for x in self.validators:
+                    x(session, *a, **kw)
 
             return self.callback(*a, **kw)
 
@@ -633,15 +648,21 @@ class JsonApiResponsePlugin(object):
     name = 'json_api_response'
     api = 2
 
+    @staticmethod
+    def has_body():
+        return request.method not in ['OPTIONS']
+
     def __init__(self, app):
         app.install_error_callback(self.error_callback)
 
     def apply(self, callback, route):
         def wrap(*a, **kw):
-            resp = {'data': callback(*a, **kw)}
-            resp['status'] = 'ok'
-            resp['message'] = response.status_line
-            return resp
+            data = callback(*a, **kw)
+            if self.has_body():
+                resp = {'data': data}
+                resp['status'] = 'ok'
+                resp['message'] = response.status_line
+                return resp
         return wrap
 
     def error_callback(self, error, response_object, **kw):

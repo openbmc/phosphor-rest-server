@@ -603,10 +603,29 @@ class JsonApiRequestTypePlugin(object):
         return wrap
 
 
+class JsonErrorsPlugin(JSONPlugin):
+    ''' Extend the Bottle JSONPlugin such that it also encodes error
+        responses. '''
+
+    def __init__(self, app, **kw):
+        super(JsonErrorsPlugin, self).__init__(**kw)
+        self.json_opts = {
+            x: y for x, y in kw.iteritems()
+            if x in ['indent', 'sort_keys']}
+        app.install_error_callback(self.error_callback)
+
+    def error_callback(self, response_object, response_body, **kw):
+        response_body['body'] = json.dumps(response_object, **self.json_opts)
+        response.content_type = 'application/json'
+
+
 class JsonApiResponsePlugin(object):
-    ''' Emits normal responses in the OpenBMC json api format. '''
+    ''' Emits responses in the OpenBMC json api format. '''
     name = 'json_api_response'
     api = 2
+
+    def __init__(self, app):
+        app.install_error_callback(self.error_callback)
 
     def apply(self, callback, route):
         def wrap(*a, **kw):
@@ -616,54 +635,21 @@ class JsonApiResponsePlugin(object):
             return resp
         return wrap
 
-
-class JsonApiErrorsPlugin(object):
-    ''' Emits error responses in the OpenBMC json api format. '''
-    name = 'json_api_errors'
-    api = 2
-
-    def __init__(self, **kw):
-        self.app = None
-        self.function_type = None
-        self.original = None
-        self.json_opts = {
-            x: y for x, y in kw.iteritems()
-            if x in ['indent', 'sort_keys']}
-
-    def setup(self, app):
-        self.app = app
-        self.function_type = type(app.default_error_handler)
-        self.original = app.default_error_handler
-        self.app.default_error_handler = self.function_type(
-            self.json_errors, app, Bottle)
-
-    def apply(self, callback, route):
-        return callback
-
-    def close(self):
-        self.app.default_error_handler = self.function_type(
-            self.original, self.app, Bottle)
-
-    def json_errors(self, res, error):
-        response_object = {'status': 'error', 'data': {}}
+    def error_callback(self, error, response_object, **kw):
         response_object['message'] = error.status_line
-        response_object['data']['description'] = str(error.body)
+        response_object.setdefault('data', {})['description'] = str(error.body)
         if error.status_code == 500:
             response_object['data']['exception'] = repr(error.exception)
             response_object['data']['traceback'] = error.traceback.splitlines()
 
-        json_response = json.dumps(response_object, **self.json_opts)
-        response.content_type = 'application/json'
-        return json_response
 
-
-class JsonpPlugin(JsonApiErrorsPlugin):
+class JsonpPlugin(object):
     ''' Json javascript wrapper. '''
     name = 'jsonp'
     api = 2
 
-    def __init__(self, **kw):
-        super(JsonpPlugin, self).__init__(**kw)
+    def __init__(self, app, **kw):
+        app.install_error_callback(self.error_callback)
 
     @staticmethod
     def to_jsonp(json):
@@ -678,9 +664,8 @@ class JsonpPlugin(JsonApiErrorsPlugin):
             return self.to_jsonp(callback(*a, **kw))
         return wrap
 
-    def json_errors(self, res, error):
-        json = super(JsonpPlugin, self).json_errors(res, error)
-        return self.to_jsonp(json)
+    def error_callback(self, response_body, **kw):
+        response_body['body'] = self.to_jsonp(response_body['body'])
 
 
 class App(Bottle):
@@ -688,6 +673,7 @@ class App(Bottle):
         super(App, self).__init__(autojson=False)
         self.bus = dbus.SystemBus()
         self.mapper = obmc.mapper.Mapper(self.bus)
+        self.error_callbacks = []
 
         self.install_hooks()
         self.install_plugins()
@@ -698,13 +684,18 @@ class App(Bottle):
         # install json api plugins
         json_kw = {'indent': 2, 'sort_keys': True}
         self.install(AuthorizationPlugin())
-        self.install(JsonpPlugin(**json_kw))
-        self.install(JSONPlugin(**json_kw))
-        self.install(JsonApiResponsePlugin())
+        self.install(JsonpPlugin(self, **json_kw))
+        self.install(JsonErrorsPlugin(self, **json_kw))
+        self.install(JsonApiResponsePlugin(self))
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())
 
     def install_hooks(self):
+        self.error_handler_type = type(self.default_error_handler)
+        self.original_error_handler = self.default_error_handler
+        self.default_error_handler = self.error_handler_type(
+            self.custom_error_handler, self, Bottle)
+
         self.real_router_match = self.router.match
         self.router.match = self.custom_router_match
         self.add_hook('before_request', self.strip_extra_slashes)
@@ -731,6 +722,9 @@ class App(Bottle):
         # this has to come last, since it matches everything
         self.instance_handler.install()
 
+    def install_error_callback(self, callback):
+        self.error_callbacks.insert(0, callback)
+
     def custom_router_match(self, environ):
         ''' The built-in Bottle algorithm for figuring out if a 404 or 405 is
             needed doesn't work for us since the instance rules match
@@ -744,6 +738,19 @@ class App(Bottle):
             route.callback._setup(**args)
 
         return route, args
+
+    def custom_error_handler(self, res, error):
+        ''' Allow plugins to modify error reponses too via this custom
+            error handler. '''
+
+        response_object = {}
+        response_body = {}
+        for x in self.error_callbacks:
+            x(error=error,
+                response_object=response_object,
+                response_body=response_body)
+
+        return response_body.get('body', "")
 
     @staticmethod
     def strip_extra_slashes():

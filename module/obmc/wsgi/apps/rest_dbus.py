@@ -278,21 +278,24 @@ class PropertyHandler(RouteHandler):
     def find(self, path, prop):
         self.app.instance_handler.setup(path)
         obj = self.app.instance_handler.do_get(path)
-        try:
-            obj[prop]
-        except KeyError, e:
-            if request.method == 'PUT':
-                abort(403, _4034_msg % ('property', 'created', str(e)))
-            else:
-                abort(404, _4034_msg % ('property', 'found', str(e)))
+        real_name = obmc.utils.misc.find_case_insensitive(
+            prop, obj.keys())
 
-        return {path: obj}
+        if not real_name:
+            if request.method == 'PUT':
+                abort(403, _4034_msg % ('property', 'created', prop))
+            else:
+                abort(404, _4034_msg % ('property', 'found', prop))
+        return real_name, {path: obj}
 
     def setup(self, path, prop):
-        request.route_data['obj'] = self.find(path, prop)
+        name, obj = self.find(path, prop)
+        request.route_data['obj'] = obj
+        request.route_data['name'] = name
 
     def do_get(self, path, prop):
-        return request.route_data['obj'][path][prop]
+        name = request.route_data['name']
+        return request.route_data['obj'][path][name]
 
     def do_put(self, path, prop, value=None):
         if value is None:

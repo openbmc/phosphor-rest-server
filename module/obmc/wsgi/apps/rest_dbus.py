@@ -720,6 +720,7 @@ class JsonApiResponsePlugin(object):
 
     def error_callback(self, error, response_object, **kw):
         response_object['message'] = error.status_line
+        response_object['status'] = 'error'
         response_object.setdefault('data', {})['description'] = str(error.body)
         if error.status_code == 500:
             response_object['data']['exception'] = repr(error.exception)

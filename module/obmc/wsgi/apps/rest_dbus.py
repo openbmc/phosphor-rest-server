@@ -32,7 +32,7 @@ DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
 DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
 DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
 DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
-DELETE_IFACE = 'org.openbmc.Object.Delete'
+DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
 

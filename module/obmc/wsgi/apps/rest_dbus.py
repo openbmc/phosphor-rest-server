@@ -630,16 +630,13 @@ class JsonApiRequestPlugin(object):
         return request.method in JsonApiRequestPlugin.request_methods
 
     def validate_request(self):
-        if request.content_length > 0 and \
-                request.content_type != self.json_type:
-            abort(415, self.type_error_str % request.content_type)
-
-        try:
-            request.parameter_list = request.json.get('data')
-        except ValueError, e:
-            abort(400, str(e))
-        except (AttributeError, KeyError, TypeError):
-            abort(400, self.error_str % request.json)
+        if self.json_type == request.content_type:
+            try:
+                request.parameter_list = request.json.get('data')
+            except ValueError, e:
+                abort(400, str(e))
+            except (AttributeError, KeyError, TypeError):
+                abort(400, self.error_str % request.json)
 
     def apply(self, callback, route):
         verbs = getattr(
@@ -664,6 +661,7 @@ class JsonApiRequestTypePlugin(object):
     api = 2
 
     error_str = "Expecting request format { 'data': %s }, got '%s'"
+    json_type = "application/json"
 
     def apply(self, callback, route):
         request_type = getattr(
@@ -672,8 +670,10 @@ class JsonApiRequestTypePlugin(object):
             return callback
 
         def validate_request():
-            if not isinstance(request.parameter_list, request_type):
-                abort(400, self.error_str % (str(request_type), request.json))
+            if self.json_type == request.content_type:
+                if not isinstance(request.parameter_list, request_type):
+                    abort(400, self.error_str % (str(request_type),
+                          request.json))
 
         def wrap(*a, **kw):
             if JsonApiRequestPlugin.content_expected():

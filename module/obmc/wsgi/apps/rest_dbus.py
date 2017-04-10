@@ -755,6 +755,31 @@ class JsonpPlugin(object):
         response_body['body'] = self.to_jsonp(response_body['body'])
 
 
+class ContentCheckerPlugin(object):
+    ''' Ensures that a route is associated with the expected content-type
+        header. '''
+    name = 'content_checker'
+    api = 2
+    content_type = ''
+
+    error_str = "Expecting content type '%s', got '%s'"
+
+    def validate_request(self):
+        if self.content_type and \
+                self.content_type != request.content_type:
+            abort(415, self.error_str % (self.content_type,
+                  request.content_type))
+
+    def apply(self, callback, route):
+        self.content_type = getattr(
+            route.get_undecorated_callback(), '_content_type', None)
+
+        def wrap(*a, **kw):
+            self.validate_request()
+            return callback(*a, **kw)
+        return wrap
+
+
 class App(Bottle):
     def __init__(self):
         super(App, self).__init__(autojson=False)
@@ -772,6 +797,7 @@ class App(Bottle):
         json_kw = {'indent': 2, 'sort_keys': True}
         self.install(AuthorizationPlugin())
         self.install(CorsPlugin(self))
+        self.install(ContentCheckerPlugin())
         self.install(JsonpPlugin(self, **json_kw))
         self.install(JsonErrorsPlugin(self, **json_kw))
         self.install(JsonApiResponsePlugin(self))

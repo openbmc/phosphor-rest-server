@@ -67,12 +67,13 @@ class RouteHandler(object):
     _require_auth = obmc.utils.misc.makelist(valid_user)
     _enable_cors = True
 
-    def __init__(self, app, bus, verbs, rules):
+    def __init__(self, app, bus, verbs, rules, content_type=''):
         self.app = app
         self.bus = bus
         self.mapper = obmc.mapper.Mapper(bus)
         self._verbs = obmc.utils.misc.makelist(verbs)
         self._rules = rules
+        self._content_type = content_type
         self.intf_match = obmc.utils.misc.org_dot_openbmc_match
 
         if 'GET' in self._verbs:
@@ -211,10 +212,11 @@ class MethodHandler(RouteHandler):
     verbs = 'POST'
     rules = '<path:path>/action/<method>'
     request_type = list
+    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(MethodHandler, self).__init__(
-            app, bus, self.verbs, self.rules)
+            app, bus, self.verbs, self.rules, self.content_type)
 
     def find(self, path, method):
         busses = self.try_mapper_call(
@@ -270,10 +272,11 @@ class MethodHandler(RouteHandler):
 class PropertyHandler(RouteHandler):
     verbs = ['PUT', 'GET']
     rules = '<path:path>/attr/<prop>'
+    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(PropertyHandler, self).__init__(
-            app, bus, self.verbs, self.rules)
+            app, bus, self.verbs, self.rules, self.content_type)
 
     def find(self, path, prop):
         self.app.instance_handler.setup(path)

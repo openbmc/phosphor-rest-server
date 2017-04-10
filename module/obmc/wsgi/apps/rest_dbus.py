@@ -642,6 +642,11 @@ class JsonApiRequestPlugin(object):
             abort(400, self.error_str % request.json)
 
     def apply(self, callback, route):
+        content_type = getattr(
+            route.get_undecorated_callback(), '_content_type', None)
+        if self.json_type != content_type:
+            return callback
+
         verbs = getattr(
             route.get_undecorated_callback(), '_verbs', None)
         if verbs is None:
@@ -664,8 +669,14 @@ class JsonApiRequestTypePlugin(object):
     api = 2
 
     error_str = "Expecting request format { 'data': %s }, got '%s'"
+    json_type = "application/json"
 
     def apply(self, callback, route):
+        content_type = getattr(
+            route.get_undecorated_callback(), '_content_type', None)
+        if self.json_type != content_type:
+            return callback
+
         request_type = getattr(
             route.get_undecorated_callback(), 'request_type', None)
         if request_type is None:

@@ -26,6 +26,9 @@ import obmc.mapper
 import spwd
 import grp
 import crypt
+import sys
+
+py3 = sys.version_info >= (3, 0, 0)
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -531,6 +534,44 @@ class SessionHandler(MethodHandler):
         pass
 
 
+class ImageUploadHandler(RouteHandler):
+    ''' Handles the /upload route. '''
+
+    verbs = ['POST']
+    rules = ['/upload/image']
+    content_type = 'application/octet-stream'
+    file_name = 'image'
+    file_num = 0
+    file_loc = '/tmp/images'
+
+    def __init__(self, app, bus):
+        super(ImageUploadHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_post(self, **kw):
+        if not os.path.exists(self.file_loc):
+            os.makedirs(self.file_loc)
+        filename = self.file_name + str(self.file_num)
+
+        if py3:
+            with open(os.path.join(self.file_loc, filename), "x") as fd:
+                fd.write(request.body.read())
+        else:
+            file = os.path.join(self.file_loc, filename)
+            if os.path.isfile(file):
+                abort(400, filename + ' already exists')
+            else:
+                with open(file, "w") as fd:
+                    fd.write(request.body.read())
+        self.file_num += 1
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
 class AuthorizationPlugin(object):
     ''' Invokes an optional list of authorization callbacks. '''
 
@@ -836,6 +877,7 @@ class App(Bottle):
         self.method_handler = MethodHandler(self, self.bus)
         self.property_handler = PropertyHandler(self, self.bus)
         self.schema_handler = SchemaHandler(self, self.bus)
+        self.image_upload_handler = ImageUploadHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -846,6 +888,7 @@ class App(Bottle):
         self.method_handler.install()
         self.property_handler.install()
         self.schema_handler.install()
+        self.image_upload_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

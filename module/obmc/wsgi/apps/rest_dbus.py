@@ -532,31 +532,62 @@ class SessionHandler(MethodHandler):
         pass
 
 
-class ImageUploadHandler(RouteHandler):
-    ''' Handles the /upload route. '''
+class ImageUploadUtils:
+    ''' Provides common utils for image upload. '''
 
-    verbs = ['POST']
-    rules = ['/upload/image']
-    content_type = 'application/octet-stream'
     file_loc = '/tmp/images'
     file_prefix = 'img'
     file_suffix = ''
 
+    @classmethod
+    def do_upload(cls, filename=''):
+        if not os.path.exists(cls.file_loc):
+            os.makedirs(cls.file_loc)
+        if not filename:
+            handle, filename = tempfile.mkstemp(cls.file_suffix,
+                                                cls.file_prefix, cls.file_loc)
+            os.close(handle)
+        else:
+            filename = os.path.join(cls.file_loc, filename)
+
+        with open(filename, "w") as fd:
+            fd.write(request.body.read())
+
+
+class ImagePostHandler(RouteHandler):
+    ''' Handles the /upload/image route. '''
+
+    verbs = ['POST']
+    rules = ['/upload/image']
+    content_type = 'application/octet-stream'
+
     def __init__(self, app, bus):
-        super(ImageUploadHandler, self).__init__(
+        super(ImagePostHandler, self).__init__(
             app, bus, self.verbs, self.rules, self.content_type)
 
-    def do_post(self, **kw):
-        self.do_upload(**kw)
+    def do_post(self, filename=''):
+        ImageUploadUtils.do_upload()
 
-    def do_upload(self, **kw):
-        if not os.path.exists(self.file_loc):
-            os.makedirs(self.file_loc)
-        handle, filename = tempfile.mkstemp(self.file_suffix,
-                                            self.file_prefix, self.file_loc)
+    def find(self, **kw):
+        pass
 
-        with os.fdopen(handle, "w") as fd:
-            fd.write(request.body.read())
+    def setup(self, **kw):
+        pass
+
+
+class ImagePutHandler(RouteHandler):
+    ''' Handles the /upload/image/<filename> route. '''
+
+    verbs = ['PUT']
+    rules = ['/upload/image/<filename>']
+    content_type = 'application/octet-stream'
+
+    def __init__(self, app, bus):
+        super(ImagePutHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_put(self, filename=''):
+        ImageUploadUtils.do_upload(filename)
 
     def find(self, **kw):
         pass
@@ -870,7 +901,8 @@ class App(Bottle):
         self.method_handler = MethodHandler(self, self.bus)
         self.property_handler = PropertyHandler(self, self.bus)
         self.schema_handler = SchemaHandler(self, self.bus)
-        self.image_upload_handler = ImageUploadHandler(self, self.bus)
+        self.image_upload_post_handler = ImagePostHandler(self, self.bus)
+        self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -881,7 +913,8 @@ class App(Bottle):
         self.method_handler.install()
         self.property_handler.install()
         self.schema_handler.install()
-        self.image_upload_handler.install()
+        self.image_upload_post_handler.install()
+        self.image_upload_put_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

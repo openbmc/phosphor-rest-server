@@ -538,7 +538,7 @@ class ImageUploadHandler(RouteHandler):
     ''' Handles the /upload route. '''
 
     verbs = ['POST']
-    rules = ['/upload/image']
+    rules = ['/upload/image', '/upload/image/<filename>']
     content_type = 'application/octet-stream'
     file_name = 'image'
     file_num = 0
@@ -548,14 +548,19 @@ class ImageUploadHandler(RouteHandler):
         super(ImageUploadHandler, self).__init__(
             app, bus, self.verbs, self.rules, self.content_type)
 
-    def do_post(self, **kw):
+    def do_post(self, filename=''):
         if not os.path.exists(self.file_loc):
             os.makedirs(self.file_loc)
-        filename = self.file_name + str(self.file_num)
+        if not filename:
+            filename = self.file_name + str(self.file_num)
+            self.file_num += 1
 
         if py3:
-            with open(os.path.join(self.file_loc, filename), "x") as fd:
-                fd.write(request.body.read())
+            try:
+                with open(os.path.join(self.file_loc, filename), "x") as fd:
+                    fd.write(request.body.read())
+            except FileExistsError:
+                abort(400, filename + 'already exists')
         else:
             file = os.path.join(self.file_loc, filename)
             if os.path.isfile(file):
@@ -563,7 +568,6 @@ class ImageUploadHandler(RouteHandler):
             else:
                 with open(file, "w") as fd:
                     fd.write(request.body.read())
-        self.file_num += 1
 
     def find(self, **kw):
         pass

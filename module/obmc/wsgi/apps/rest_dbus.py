@@ -531,6 +531,34 @@ class SessionHandler(MethodHandler):
         pass
 
 
+class UploadHandler(RouteHandler):
+    ''' Handles the /upload route. '''
+
+    verbs = ['PUT']
+    rules = ['/upload']
+    file_name = 'image'
+    file_num = 0
+    file_loc = '/tmp/images'
+
+    def __init__(self, app, bus):
+        super(UploadHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def do_put(self, **kw):
+        if not os.path.exists(self.file_loc):
+            os.makedirs(self.file_loc)
+        filename = self.file_name + str(self.file_num)
+        with open(os.path.join(self.file_loc, filename), "w") as fd:
+            fd.write(request.body.read())
+        self.file_num += 1
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
 class AuthorizationPlugin(object):
     ''' Invokes an optional list of authorization callbacks. '''
 
@@ -822,6 +850,7 @@ class App(Bottle):
         self.method_handler = MethodHandler(self, self.bus)
         self.property_handler = PropertyHandler(self, self.bus)
         self.schema_handler = SchemaHandler(self, self.bus)
+        self.upload_handler = UploadHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -832,6 +861,7 @@ class App(Bottle):
         self.method_handler.install()
         self.property_handler.install()
         self.schema_handler.install()
+        self.upload_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

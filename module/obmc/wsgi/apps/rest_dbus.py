@@ -535,7 +535,7 @@ class UploadHandler(RouteHandler):
     ''' Handles the /upload route. '''
 
     verbs = ['PUT']
-    rules = ['/upload']
+    rules = ['/upload', '/upload/<filename>']
     file_name = 'image'
     file_num = 0
     file_loc = '/tmp/images'
@@ -544,13 +544,14 @@ class UploadHandler(RouteHandler):
         super(UploadHandler, self).__init__(
             app, bus, self.verbs, self.rules)
 
-    def do_put(self, **kw):
+    def do_put(self, filename=''):
         if not os.path.exists(self.file_loc):
             os.makedirs(self.file_loc)
-        filename = self.file_name + str(self.file_num)
+        if not filename:
+            filename = self.file_name + str(self.file_num)
+            self.file_num += 1
         with open(os.path.join(self.file_loc, filename), "w") as fd:
             fd.write(request.body.read())
-        self.file_num += 1
 
     def find(self, **kw):
         pass

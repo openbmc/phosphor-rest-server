@@ -26,6 +26,9 @@ import obmc.mapper
 import spwd
 import grp
 import crypt
+import re
+import sys
+import collections
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -43,6 +46,96 @@ def valid_user(session, *a, **kw):
     if session is None:
         abort(401, 'Login required')
 
+def get_type_signature_by_introspection(bus, service, object_path, property_name):
+    obj = bus.get_object(service, object_path)
+    iface = dbus.Interface(obj, 'org.freedesktop.DBus.Introspectable')
+    xml_string = iface.Introspect()
+    for child in ElementTree.fromstring(xml_string):
+        if child.tag == 'interface':
+            for i in child.iter():
+                if ('name' in i.attrib) and (i.attrib['name'] == property_name):
+                    type_signature = i.attrib['type']
+                    return type_signature
+        if child.tag == 'node':
+            if object_path == '/':
+                object_path = ''
+            new_path = '/'.join((object_path, child.attrib['name']))
+            get-type_signature(bus, service, new_path, 'poll_interval')
+
+def get_expected_type(message):
+    expected_type = None
+    matches = re.match(r"Error setting property '(\S+)': Expected type '(\S+)' but got '(\S+)'", message)
+    if matches and (len(matches.groups()) > 2):
+        expected_type = matches.group(2)
+    return expected_type
+
+def split_struct_signature(signature):
+    struct_regex = r'(b|y|n|i|x|q|u|t|d|s|a\(.+?\)|\(.+?\))|a\{.+?\}+?'
+    struct_matches = re.findall(struct_regex, signature)
+    return struct_matches
+
+def convert_type(signature, value):
+    converted_value = None
+    # Basic Types
+    converted_value = None
+    converted_container = None
+    basic_types = { 'b':bool,'y':dbus.Byte,'n':dbus.Int16,'i':int,'x':long,
+                    'q':dbus.UInt16,'u':dbus.UInt32,'t':dbus.UInt64,'d':float,
+                    's':str
+                  }
+    array_matches =  re.match(r'a\((\S+)\)', signature)
+    struct_matches = re.match(r'\((\S+)\)', signature)
+    dictionary_matches = re.match(r'a{(\S+)}', signature)
+    if signature in basic_types:
+        converted_value = basic_types[signature](value)
+        return converted_value
+    # Array
+    elif array_matches:
+        element_type = array_matches.group(1)
+        converted_container = list()
+        # Test if value is a sequence not including string
+        if isinstance(value, collections.Sequence) and not isinstance(value, basestring):
+            for i in value:
+                converted_element = convert_type(element_type, i)
+                converted_container.append(converted_element)
+        else:
+            converted_element = convert_type(element_type, value)
+            converted_container.append(converted_element)
+        return converted_container
+    # Struct
+    elif struct_matches:
+        element_types = struct_matches.group(1)
+        split_element_types = split_struct_signature(element_types)
+        if len(split_element_types) != len(value):
+            return None
+        converted_container = list()
+        # Test if value is a sequence not including string
+        if isinstance(value, collections.Sequence) and not isinstance(value, basestring):
+            for index,val in enumerate(value):
+                converted_element = convert_type(split_element_types[index], value[index])
+
+                converted_container.append(converted_element)
+        else:
+            converted_element = convert_type(element_types, value)
+            converted_container.append(converted_element)
+        return tuple(converted_container)
+    # Dictionary
+    elif dictionary_matches:
+        element_types = dictionary_matches.group(1)
+        split_element_types = split_struct_signature(element_types)
+        # Dictionary must have key, value signature types
+        if len(split_element_types) != 2:
+            return None
+        converted_container = dict()
+        # Value must be an instance of dict
+        if isinstance(value,dict):
+            for key,val in value.iteritems():
+                converted_key = convert_type(split_element_types[0], key)
+                converted_val = convert_type(split_element_types[1], val)
+                converted_container[converted_key] = converted_val
+        else:
+            return None
+        return converted_container
 
 class UserInGroup:
     ''' Authorization plugin callback that checks that the user is logged in
@@ -67,13 +160,12 @@ class RouteHandler(object):
     _require_auth = obmc.utils.misc.makelist(valid_user)
     _enable_cors = True
 
-    def __init__(self, app, bus, verbs, rules, content_type=''):
+    def __init__(self, app, bus, verbs, rules):
         self.app = app
         self.bus = bus
         self.mapper = obmc.mapper.Mapper(bus)
         self._verbs = obmc.utils.misc.makelist(verbs)
         self._rules = rules
-        self._content_type = content_type
         self.intf_match = obmc.utils.misc.org_dot_openbmc_match
 
         if 'GET' in self._verbs:
@@ -212,11 +304,10 @@ class MethodHandler(RouteHandler):
     verbs = 'POST'
     rules = '<path:path>/action/<method>'
     request_type = list
-    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(MethodHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path, method):
         busses = self.try_mapper_call(
@@ -232,6 +323,7 @@ class MethodHandler(RouteHandler):
         request.route_data['method'] = self.find(path, method)
 
     def do_post(self, path, method):
+        request.route_data['method'] = self.find(path, method)
         try:
             if request.parameter_list:
                 return request.route_data['method'](*request.parameter_list)
@@ -272,11 +364,10 @@ class MethodHandler(RouteHandler):
 class PropertyHandler(RouteHandler):
     verbs = ['PUT', 'GET']
     rules = '<path:path>/attr/<prop>'
-    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(PropertyHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path, prop):
         self.app.instance_handler.setup(path)
@@ -312,6 +403,26 @@ class PropertyHandler(RouteHandler):
             abort(400, str(e))
         except dbus.exceptions.DBusException, e:
             if e.get_dbus_name() == DBUS_INVALID_ARGS:
+                msg = e.message
+                expected_type = get_expected_type(msg)
+                if not expected_type:
+                    abort(403, "Failed to get expected type. " + msg)
+                converted_value = None
+                try:
+                    converted_value = convert_type(expected_type, value)
+                except Exception as ex:
+                    print "Failed to Convert Type. Unexpected error:",str(ex)
+
+                if not converted_value:
+                    abort(403, "Failed to convert %s to type %s" % (value, expected_type))
+                try:
+                    properties_iface.Set(iface, prop, converted_value)
+                except ValueError, e:
+                    abort(400, str(e))
+                except dbus.exceptions.DBusException, e:
+                    if e.get_dbus_name() == DBUS_INVALID_ARGS:
+                        abort(403, str(e))
+                    raise
                 abort(403, str(e))
             raise
 

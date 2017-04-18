@@ -26,6 +26,7 @@ import obmc.mapper
 import spwd
 import grp
 import crypt
+import re
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -67,13 +68,12 @@ class RouteHandler(object):
     _require_auth = obmc.utils.misc.makelist(valid_user)
     _enable_cors = True
 
-    def __init__(self, app, bus, verbs, rules, content_type=''):
+    def __init__(self, app, bus, verbs, rules):
         self.app = app
         self.bus = bus
         self.mapper = obmc.mapper.Mapper(bus)
         self._verbs = obmc.utils.misc.makelist(verbs)
         self._rules = rules
-        self._content_type = content_type
         self.intf_match = obmc.utils.misc.org_dot_openbmc_match
 
         if 'GET' in self._verbs:
@@ -212,11 +212,10 @@ class MethodHandler(RouteHandler):
     verbs = 'POST'
     rules = '<path:path>/action/<method>'
     request_type = list
-    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(MethodHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path, method):
         busses = self.try_mapper_call(
@@ -272,11 +271,10 @@ class MethodHandler(RouteHandler):
 class PropertyHandler(RouteHandler):
     verbs = ['PUT', 'GET']
     rules = '<path:path>/attr/<prop>'
-    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(PropertyHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path, prop):
         self.app.instance_handler.setup(path)
@@ -300,6 +298,39 @@ class PropertyHandler(RouteHandler):
         name = request.route_data['name']
         return request.route_data['obj'][path][name]
 
+    def get_expected_type(self, message):
+        expected_type = None
+        matches = re.match(r"Error setting property '(\S+)': Expected type '(\S+)' but got '(\S+)'", msg)
+        if matches and (len(matches.groups()) > 2):
+            expected_type = matches.group(2)
+        return expected_type
+
+   def convert_type(self, value, expected_type):
+        # Convert to expected type
+        converted_value = None
+        if expected_type == 'b':
+            converted_value = bool(value)
+        elif expected_type == 'y':
+            converted_value = dbus.Byte(value)
+        elif expected_type == 'n':
+            converted_value = dbus.Int16(value)
+        elif expected_type == 'i':
+            converted_value = int(value)
+        elif expected_type == 'x':
+            converted_value = long(value)
+        elif expected_type == 'q':
+            converted_value = dbus.UInt16(value)
+        elif expected_type == 'u':
+            converted_value = dbus.UInt32(value)
+        elif expected_type == 't':
+            converted_value = dbus.UInt64(value)
+        elif expected_type == 'd':
+            converted_value = float(value)
+        elif expected_type == 's':
+            converted_value = str(value)
+        return converted_value
+
+
     def do_put(self, path, prop, value=None):
         if value is None:
             value = request.parameter_list
@@ -312,6 +343,22 @@ class PropertyHandler(RouteHandler):
             abort(400, str(e))
         except dbus.exceptions.DBusException, e:
             if e.get_dbus_name() == DBUS_INVALID_ARGS:
+                msg = e.message
+                expected_type = get_expected_type(msg)
+                if not expected_type:
+                    abort(403, "Failed to get expected type. " + msg)
+                converted_value = convert_type(value, expected_type)
+                if not converted_value:
+                    abort(403 "Failed to convert %s to type %s" % (value, converted_type)
+                try:
+                    properties_iface.Set(iface, prop, converted_value)
+                except ValueError, e:
+                    abort(400, str(e))
+                except dbus.exceptions.DBusException, e:
+                    if e.get_dbus_name() == DBUS_INVALID_ARGS:
+                        print "++++++++++++ FAIL AGAIN"
+                        abort(403, str(e))
+                    raise
                 abort(403, str(e))
             raise
 

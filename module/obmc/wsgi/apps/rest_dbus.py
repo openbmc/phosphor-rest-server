@@ -27,6 +27,8 @@ import spwd
 import grp
 import crypt
 import tempfile
+import re
+import collections
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -43,6 +45,87 @@ def valid_user(session, *a, **kw):
     that the user is logged in. '''
     if session is None:
         abort(401, 'Login required')
+
+
+def get_type_signature_by_introspection(bus, service, object_path,
+                                        property_name):
+    obj = bus.get_object(service, object_path)
+    iface = dbus.Interface(obj, 'org.freedesktop.DBus.Introspectable')
+    xml_string = iface.Introspect()
+    for child in ElementTree.fromstring(xml_string):
+        # Iterate over each interfaces's properties to find
+        # matching property_name, and return it's signature string
+        if child.tag == 'interface':
+            for i in child.iter():
+                if ('name' in i.attrib) and \
+                   (i.attrib['name'] == property_name):
+                    type_signature = i.attrib['type']
+                    return type_signature
+
+
+def split_struct_signature(signature):
+    struct_regex = r'(b|y|n|i|x|q|u|t|d|s|a\(.+?\)|\(.+?\))|a\{.+?\}+?'
+    struct_matches = re.findall(struct_regex, signature)
+    return struct_matches
+
+
+def convert_type(signature, value):
+    # Basic Types
+    converted_value = None
+    converted_container = None
+    basic_types = {'b': bool, 'y': dbus.Byte, 'n': dbus.Int16, 'i': int,
+                   'x': long, 'q': dbus.UInt16, 'u': dbus.UInt32,
+                   't': dbus.UInt64, 'd': float, 's': str}
+    array_matches = re.match(r'a\((\S+)\)', signature)
+    struct_matches = re.match(r'\((\S+)\)', signature)
+    dictionary_matches = re.match(r'a{(\S+)}', signature)
+    if signature in basic_types:
+        converted_value = basic_types[signature](value)
+        return converted_value
+    # Array
+    if array_matches:
+        element_type = array_matches.group(1)
+        converted_container = list()
+        # Test if value is a sequence not including string
+        # to avoid iterating over each character in a string.
+        # Iterate over each item in sequence and convert type
+        if (isinstance(value, collections.Sequence)) and \
+           (not isinstance(value, basestring)):
+            for i in value:
+                converted_element = convert_type(element_type, i)
+                converted_container.append(converted_element)
+        # Convert non-sequence to expected type, and append to list
+        else:
+            converted_element = convert_type(element_type, value)
+            converted_container.append(converted_element)
+        return converted_container
+    # Struct
+    if struct_matches:
+        element_types = struct_matches.group(1)
+        split_element_types = split_struct_signature(element_types)
+        converted_container = list()
+        # Test if value is a sequence not including string
+        if (isinstance(value, collections.Sequence)) and \
+           (not isinstance(value, basestring)):
+            for index, val in enumerate(value):
+                converted_element = convert_type(split_element_types[index],
+                                                 value[index])
+                converted_container.append(converted_element)
+        else:
+            converted_element = convert_type(element_types, value)
+            converted_container.append(converted_element)
+        return tuple(converted_container)
+    # Dictionary
+    if dictionary_matches:
+        element_types = dictionary_matches.group(1)
+        split_element_types = split_struct_signature(element_types)
+        converted_container = dict()
+        # Convert each element of dict
+        for key, val in value.iteritems():
+            converted_key = convert_type(split_element_types[0], key)
+            converted_val = convert_type(split_element_types[1], val)
+            converted_container[converted_key] = converted_val
+        return converted_container
 
 
 class UserInGroup:
@@ -313,6 +396,17 @@ class PropertyHandler(RouteHandler):
             abort(400, str(e))
         except dbus.exceptions.DBusException, e:
             if e.get_dbus_name() == DBUS_INVALID_ARGS:
+                expected_type = get_type_signature_by_introspection(self.bus, properties_iface.bus_name, path, prop)
+                if not expected_type:
+                    abort(403, "Failed to get expected type: %s" % str(e))
+                converted_value = None
+                try:
+                    converted_value = convert_type(expected_type, value)
+                    self.do_put(path, prop, converted_value)
+                    return
+                except Exception as ex:
+                    abort(403, "Failed to convert %s to type %s" %
+                          (value, expected_type))
                 abort(403, str(e))
             raise
 
@@ -333,10 +427,11 @@ class PropertyHandler(RouteHandler):
             properties = self.try_properties_interface(iface.GetAll, i)
             if not properties:
                 continue
-            prop = obmc.utils.misc.find_case_insensitive(
+            match = obmc.utils.misc.find_case_insensitive(
                 prop, properties.keys())
-            if prop is None:
+            if match is None:
                 continue
+            prop = match
             return prop, i
 
 

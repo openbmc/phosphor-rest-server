@@ -844,7 +844,8 @@ class ContentCheckerPlugin(object):
             self.error_str = "Expecting content type '%s', got '%s'"
 
         def __call__(self, *a, **kw):
-            if self.expected_type and \
+            if request.method in ['PUT', 'POST', 'PATCH'] and \
+                    self.expected_type and \
                     self.expected_type != request.content_type:
                 abort(415, self.error_str % (self.expected_type,
                       request.content_type))

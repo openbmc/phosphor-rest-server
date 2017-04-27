@@ -273,7 +273,7 @@ class MethodHandler(RouteHandler):
 class PropertyHandler(RouteHandler):
     verbs = ['PUT', 'GET']
     rules = '<path:path>/attr/<prop>'
-    content_type = 'application/json'
+    content_type = 'application/json' if request.method == 'PUT' else ''
 
     def __init__(self, app, bus):
         super(PropertyHandler, self).__init__(

@@ -648,6 +648,7 @@ class ImageUploadUtils:
 
         with open(filename, "w") as fd:
             fd.write(request.body.read())
+            request.body.close()
 
 
 class ImagePostHandler(RouteHandler):

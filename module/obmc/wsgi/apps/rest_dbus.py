@@ -646,8 +646,15 @@ class ImageUploadUtils:
         else:
             filename = os.path.join(cls.file_loc, filename)
 
-        with open(filename, "w") as fd:
-            fd.write(request.body.read())
+        try:
+            file_contents = request.body.read()
+            request.body.close()
+            with open(filename, "w") as fd:
+                fd.write(file_contents)
+        except (IOError, ValueError), e:
+            abort(400, str(e))
+        except:
+            abort(400, "Unexpected Error")
 
 
 class ImagePostHandler(RouteHandler):

@@ -20,6 +20,7 @@ import dbus.exceptions
 import json
 from xml.etree import ElementTree
 from bottle import Bottle, abort, request, response, JSONPlugin, HTTPError
+from bottle import static_file
 import obmc.utils.misc
 from obmc.dbuslib.introspection import IntrospectionNodeParser
 import obmc.mapper
@@ -28,6 +29,7 @@ import grp
 import crypt
 import tempfile
 import re
+import glob
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -698,6 +700,56 @@ class ImagePutHandler(RouteHandler):
     def setup(self, **kw):
         pass
 
+class DumpDownloadUtils:
+    ''' Provides common utils for dump file download. '''
+
+    file_loc = '/var/log/dumps/'
+    file_suffix = 'tar'
+
+    @classmethod
+    def do_download(cls, ctype='', dumpid=''):
+        file_loc = os.path.join(cls.file_loc, dumpid)
+        if not os.path.exists(file_loc):
+            abort(404, "File not found")
+
+        files = glob.glob(file_loc + '/*.' + cls.file_suffix)
+        num_files = len(files)
+
+        if num_files == 0:
+            abort(404, "File not found")
+
+        if num_files > 1:
+            print ("Error: " + num_files +
+                  "dump files found, reading first file from the list"
+
+        dump_file = os.path.basename(files[0])
+
+        return static_file(dump_file, root=file_loc,
+                           download=True, mimetype= ctype)
+
+
+class DumpGetHandler(RouteHandler):
+    ''' Handles the /download/dump route. '''
+
+    verbs = 'GET'
+    rules = ['/download/dump/<dumpid>']
+    content_type = 'application/octet-stream'
+
+    def __init__(self, app, bus):
+        super(DumpGetHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_get(self, dumpid=''):
+
+        return DumpDownloadUtils.do_download(self.content_type, dumpid)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+
+        pass
+
 
 class AuthorizationPlugin(object):
     ''' Invokes an optional list of authorization callbacks. '''
@@ -1013,6 +1065,7 @@ class App(Bottle):
         self.schema_handler = SchemaHandler(self, self.bus)
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
+        self.dump_download_get_handler = DumpGetHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1025,6 +1078,7 @@ class App(Bottle):
         self.schema_handler.install()
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
+        self.dump_download_get_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

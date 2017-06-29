@@ -20,6 +20,7 @@ import dbus.exceptions
 import json
 from xml.etree import ElementTree
 from bottle import Bottle, abort, request, response, JSONPlugin, HTTPError
+from bottle import static_file
 import obmc.utils.misc
 from obmc.dbuslib.introspection import IntrospectionNodeParser
 import obmc.mapper
@@ -702,6 +703,42 @@ class ImagePutHandler(RouteHandler):
         pass
 
 
+class DownloadDumpHandler(RouteHandler):
+    ''' Handles the /download/dump route. '''
+
+    verbs = 'GET'
+    rules = ['/download/dump/<dumpid>']
+    content_type = 'application/octet-stream'
+    ''' TODO openbmc/issues #1795, Change dump path'''
+    dump_loc = '/tmp/dumps'
+
+    def __init__(self, app, bus):
+        super(DownloadDumpHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_get(self, dumpid):
+        return self.do_download(dumpid)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+    def do_download(self, dumpid):
+        dump_loc = os.path.join(self.dump_loc, dumpid)
+        if not os.path.exists(dump_loc):
+            abort(404, "Path not found")
+
+        files = os.listdir(dump_loc)
+        num_files = len(files)
+        if num_files == 0:
+            abort(404, "Dump not found")
+
+        return static_file(os.path.basename(files[0]), root=dump_loc,
+                           download=True, mimetype=self.content_type)
+
+
 class AuthorizationPlugin(object):
     ''' Invokes an optional list of authorization callbacks. '''
 
@@ -897,7 +934,7 @@ class JsonApiResponsePlugin(object):
     def apply(self, callback, route):
         content_type = getattr(
             route.get_undecorated_callback(), '_content_type', None)
-        if self.json_type != content_type:
+        if self.json_type != content_type :
             return callback
 
         def wrap(*a, **kw):
@@ -1016,6 +1053,7 @@ class App(Bottle):
         self.schema_handler = SchemaHandler(self, self.bus)
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
+        self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1028,6 +1066,7 @@ class App(Bottle):
         self.schema_handler.install()
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
+        self.download_dump_get_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

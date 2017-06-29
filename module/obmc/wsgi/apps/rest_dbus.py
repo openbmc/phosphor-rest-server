@@ -233,10 +233,11 @@ class RouteHandler(object):
 class DirectoryHandler(RouteHandler):
     verbs = 'GET'
     rules = '<path:path>/'
+    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(DirectoryHandler, self).__init__(
-            app, bus, self.verbs, self.rules)
+            app, bus, self.verbs, self.rules, self.content_type)
 
     def find(self, path='/'):
         return self.try_mapper_call(
@@ -252,10 +253,11 @@ class DirectoryHandler(RouteHandler):
 class ListNamesHandler(RouteHandler):
     verbs = 'GET'
     rules = ['/list', '<path:path>/list']
+    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(ListNamesHandler, self).__init__(
-            app, bus, self.verbs, self.rules)
+            app, bus, self.verbs, self.rules, self.content_type)
 
     def find(self, path='/'):
         return self.try_mapper_call(
@@ -271,10 +273,11 @@ class ListNamesHandler(RouteHandler):
 class ListHandler(RouteHandler):
     verbs = 'GET'
     rules = ['/enumerate', '<path:path>/enumerate']
+    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(ListHandler, self).__init__(
-            app, bus, self.verbs, self.rules)
+            app, bus, self.verbs, self.rules, self.content_type)
 
     def find(self, path='/'):
         return self.try_mapper_call(
@@ -882,6 +885,7 @@ class JsonApiResponsePlugin(object):
     ''' Emits responses in the OpenBMC json api format. '''
     name = 'json_api_response'
     api = 2
+    json_type = "application/json"
 
     @staticmethod
     def has_body():
@@ -891,6 +895,11 @@ class JsonApiResponsePlugin(object):
         app.install_error_callback(self.error_callback)
 
     def apply(self, callback, route):
+        content_type = getattr(
+            route.get_undecorated_callback(), '_content_type', None)
+        if self.json_type != content_type:
+            return callback
+
         def wrap(*a, **kw):
             data = callback(*a, **kw)
             if self.has_body():

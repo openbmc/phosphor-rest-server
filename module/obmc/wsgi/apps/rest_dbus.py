@@ -20,6 +20,7 @@ import dbus.exceptions
 import json
 from xml.etree import ElementTree
 from bottle import Bottle, abort, request, response, JSONPlugin, HTTPError
+from bottle import static_file
 import obmc.utils.misc
 from obmc.dbuslib.introspection import IntrospectionNodeParser
 import obmc.mapper
@@ -28,6 +29,7 @@ import grp
 import crypt
 import tempfile
 import re
+import glob
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -701,6 +703,55 @@ class ImagePutHandler(RouteHandler):
     def setup(self, **kw):
         pass
 
+class DownloadDumpUtils:
+    ''' Provides common utils for dump file download. '''
+    ''' TODO openbmc/issues #1795, Change dump path and suffix. '''
+
+    dump_loc = '/tmp/dumps/'
+
+    @classmethod
+    def do_download(cls, content_type, dumpid):
+        if not os.path.exists(cls.dump_loc):
+            abort(500, "Dump root path is not available")
+
+        dump_loc = os.path.join(cls.dump_loc, dumpid)
+        if not os.path.exists(dump_loc):
+            abort(404, "Dump not found")
+
+        files = glob.glob(dump_loc + '/*')
+        num_files = len(files)
+        if num_files == 0:
+            abort(404, "File not found")
+
+        if num_files > 1:
+            print ("Error: " + str(num_files) +
+                   " dump files found, reading first file from the list")
+        dump_file = os.path.basename(files[0])
+
+        return static_file(dump_file, root=dump_loc,
+                           download=True, mimetype=content_type)
+
+class DownloadDumpHandler(RouteHandler):
+    ''' Handles the /download/dump route. '''
+
+    verbs = 'GET'
+    rules = ['/download/dump/<dumpid>']
+    content_type = 'application/octet-stream'
+
+    def __init__(self, app, bus):
+        super(DownloadDumpHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_get(self, dumpid):
+
+        return DownloadDumpUtils.do_download(self.content_type,dumpid)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
 
 class AuthorizationPlugin(object):
     ''' Invokes an optional list of authorization callbacks. '''
@@ -1016,6 +1067,7 @@ class App(Bottle):
         self.schema_handler = SchemaHandler(self, self.bus)
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
+        self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1028,6 +1080,7 @@ class App(Bottle):
         self.schema_handler.install()
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
+        self.download_dump_get_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

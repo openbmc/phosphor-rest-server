@@ -882,6 +882,7 @@ class JsonApiResponsePlugin(object):
     ''' Emits responses in the OpenBMC json api format. '''
     name = 'json_api_response'
     api = 2
+    json_type = "application/json"
 
     @staticmethod
     def has_body():
@@ -891,6 +892,11 @@ class JsonApiResponsePlugin(object):
         app.install_error_callback(self.error_callback)
 
     def apply(self, callback, route):
+        content_type = getattr(
+            route.get_undecorated_callback(), '_content_type', None)
+        if self.json_type != content_type:
+            return callback
+
         def wrap(*a, **kw):
             data = callback(*a, **kw)
             if self.has_body():

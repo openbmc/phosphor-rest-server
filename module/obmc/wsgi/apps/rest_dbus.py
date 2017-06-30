@@ -28,6 +28,7 @@ import grp
 import crypt
 import tempfile
 import re
+import traceback
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -163,6 +164,9 @@ class RouteHandler(object):
             self._verbs.append('OPTIONS')
 
     def _setup(self, **kw):
+        print "LEO------------------- _setup()"
+        print "LEO------------------- request.method:", request.method
+        print "LEO------------------- dir(request):", dir(request)
         request.route_data = {}
 
         if request.method in self._verbs:
@@ -199,6 +203,8 @@ class RouteHandler(object):
 
     @staticmethod
     def try_mapper_call(f, callback=None, **kw):
+        print "LEO------------  try_mapper  f:", f
+        print "LEO------------  try_mapper  kw:", kw 
         try:
             return f(**kw)
         except dbus.exceptions.DBusException, e:
@@ -209,6 +215,7 @@ class RouteHandler(object):
                 raise
             if callback is None:
                 def callback(e, **kw):
+                    print "LEO ---------------  def try_mapper_call()"
                     abort(404, str(e))
 
             callback(e, **kw)
@@ -306,7 +313,7 @@ class MethodHandler(RouteHandler):
             m = self.find_method_on_bus(path, method, *items)
             if m:
                 return m
-
+        print "LEO---------------------   find(self, path, method)"
         abort(404, _4034_msg % ('method', 'found', method))
 
     def setup(self, path, method):
@@ -369,6 +376,7 @@ class PropertyHandler(RouteHandler):
             if request.method == 'PUT':
                 abort(403, _4034_msg % ('property', 'created', prop))
             else:
+                print "LEO-------------------- find(self, path, prop)"
                 abort(404, _4034_msg % ('property', 'found', prop))
         return real_name, {path: obj}
 
@@ -476,6 +484,8 @@ class InstanceHandler(RouteHandler):
             app, bus, self.verbs, self.rules)
 
     def find(self, path, callback=None):
+        print "LEO --------------------- InstanceHandler::find()"
+        traceback.print_stack()
         return {path: self.try_mapper_call(
             self.mapper.get_object,
             callback,
@@ -483,6 +493,14 @@ class InstanceHandler(RouteHandler):
 
     def setup(self, path):
         callback = None
+        if request.method == 'DELETE':
+            print "LEO------------------------- InstanceHandler::setup()"
+            print "LEO------------------------- path:", path 
+            print "LEO------------------------- request:", request 
+            def callback(e, **kw):
+                print "LEO ---- e:", e
+                print "LEO ---- kw:", kw
+
         if request.method == 'PUT':
             def callback(e, **kw):
                 abort(403, _4034_msg % ('resource', 'created', path))
@@ -515,6 +533,10 @@ class InstanceHandler(RouteHandler):
                 path, p, v)
 
     def do_delete(self, path):
+        print "LEO ----------------------------   do_delete()"
+        print "------------------------path:", path
+        if True:
+            return
         for bus_info in request.route_data['map'][path].iteritems():
             if self.bus_missing_delete(path, *bus_info):
                 abort(403, _4034_msg % ('resource', 'removed', path))
@@ -523,9 +545,15 @@ class InstanceHandler(RouteHandler):
             self.delete_on_bus(path, bus)
 
     def bus_missing_delete(self, path, bus, interfaces):
+        print "LEO ---------------------------------  bus_missing_delete()"
+        print "--------------------------interfaces:", interfaces
+
         return DELETE_IFACE not in interfaces
 
     def delete_on_bus(self, path, bus):
+        print "LEO ----------------------------   delete_on_bus()"
+        print "--------------------------path:", path
+        print "--------------------------bus:", bus
         obj = self.bus.get_object(bus, path, introspect=False)
         delete_iface = dbus.Interface(
             obj, dbus_interface=DELETE_IFACE)
@@ -627,7 +655,18 @@ class SessionHandler(MethodHandler):
     def setup(self, **kw):
         pass
 
+class ImageDeleteUtils:
+    ''' Provide common utils for image delete. '''
 
+    @classmethod
+    def do_delete(cls, filename=''):
+        try:
+            os.remove(filename)
+        except (OSError), e:
+            abort(400, str(e))
+        except:
+            abort(400, "Unexpected Error")
+         
 class ImageUploadUtils:
     ''' Provides common utils for image upload. '''
 
@@ -669,6 +708,7 @@ class ImagePostHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_post(self, filename=''):
+        print "LEO ------------------------------ do_post()"
         ImageUploadUtils.do_upload()
 
     def find(self, **kw):
@@ -677,6 +717,31 @@ class ImagePostHandler(RouteHandler):
     def setup(self, **kw):
         pass
 
+class ImageDeleteHandler(RouteHandler):
+    ''' Handles the image delete. '''
+
+    verbs = ['DELETE']
+#    rules = ['/delete/image']
+#    rules = ['<path:path>']
+    rules = ['/delete/image/']
+#    rules = ['<filename>']
+    content_type = 'application/octet-stream'
+
+    def __init__(self, app, bus):
+        super(ImageDeleteHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_delete(self, filename=''):
+        print "LEO ---------------------------- do_delete()"            
+        ImageDeleteUtils.do_delete(filename)
+    
+    def find(self, **kw):
+        print "LEO ---------------------------- find()"            
+        pass
+
+    def setup(self, **kw):
+        print "LEO ---------------------------- setup()"            
+        pass
 
 class ImagePutHandler(RouteHandler):
     ''' Handles the /upload/image/<filename> route. '''
@@ -1007,6 +1072,7 @@ class App(Bottle):
         self.schema_handler = SchemaHandler(self, self.bus)
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
+        self.image_delete_handler = ImageDeleteHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1019,6 +1085,7 @@ class App(Bottle):
         self.schema_handler.install()
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
+        self.image_delete_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

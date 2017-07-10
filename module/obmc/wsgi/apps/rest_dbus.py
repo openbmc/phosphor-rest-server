@@ -713,6 +713,7 @@ class DownloadDumpHandler(RouteHandler):
     content_type = 'application/octet-stream'
     ''' TODO openbmc/issues #1795, Change dump path'''
     dump_loc = '/tmp/dumps'
+    suppress_json_resp = True
 
     def __init__(self, app, bus):
         super(DownloadDumpHandler, self).__init__(
@@ -934,9 +935,9 @@ class JsonApiResponsePlugin(object):
         app.install_error_callback(self.error_callback)
 
     def apply(self, callback, route):
-        content_type = getattr(
-            route.get_undecorated_callback(), '_content_type', None)
-        if self.json_type != content_type:
+        skip = getattr(
+            route.get_undecorated_callback(), 'suppress_json_resp', None)
+        if skip:
             return callback
 
         def wrap(*a, **kw):

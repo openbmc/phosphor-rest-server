@@ -440,11 +440,10 @@ class PropertyHandler(RouteHandler):
 class SchemaHandler(RouteHandler):
     verbs = ['GET']
     rules = '<path:path>/schema'
-    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(SchemaHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path):
         return self.try_mapper_call(
@@ -471,12 +470,11 @@ class SchemaHandler(RouteHandler):
 class InstanceHandler(RouteHandler):
     verbs = ['GET', 'PUT', 'DELETE']
     rules = '<path:path>'
-    content_type = 'application/json'
     request_type = dict
 
     def __init__(self, app, bus):
         super(InstanceHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path, callback=None):
         return {path: self.try_mapper_call(

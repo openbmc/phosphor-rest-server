@@ -234,11 +234,10 @@ class RouteHandler(object):
 class DirectoryHandler(RouteHandler):
     verbs = 'GET'
     rules = '<path:path>/'
-    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(DirectoryHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path='/'):
         return self.try_mapper_call(
@@ -254,11 +253,10 @@ class DirectoryHandler(RouteHandler):
 class ListNamesHandler(RouteHandler):
     verbs = 'GET'
     rules = ['/list', '<path:path>/list']
-    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(ListNamesHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path='/'):
         return self.try_mapper_call(
@@ -274,11 +272,10 @@ class ListNamesHandler(RouteHandler):
 class ListHandler(RouteHandler):
     verbs = 'GET'
     rules = ['/enumerate', '<path:path>/enumerate']
-    content_type = 'application/json'
 
     def __init__(self, app, bus):
         super(ListHandler, self).__init__(
-            app, bus, self.verbs, self.rules, self.content_type)
+            app, bus, self.verbs, self.rules)
 
     def find(self, path='/'):
         return self.try_mapper_call(
@@ -925,7 +922,6 @@ class JsonApiResponsePlugin(object):
     ''' Emits responses in the OpenBMC json api format. '''
     name = 'json_api_response'
     api = 2
-    json_type = "application/json"
 
     @staticmethod
     def has_body():

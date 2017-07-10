@@ -936,7 +936,7 @@ class JsonApiResponsePlugin(object):
     def apply(self, callback, route):
         content_type = getattr(
             route.get_undecorated_callback(), '_content_type', None)
-        if self.json_type != content_type :
+        if self.json_type != content_type:
             return callback
 
         def wrap(*a, **kw):

@@ -747,8 +747,7 @@ class DownloadDumpHandler(RouteHandler):
     verbs = 'GET'
     rules = ['/download/dump/<dumpid>']
     content_type = 'application/octet-stream'
-    ''' TODO openbmc/issues #1795, Change dump path'''
-    dump_loc = '/tmp/dumps'
+    dump_loc = '/var/lib/phosphor-debug-collector/dumps'
     suppress_json_resp = True
 
     def __init__(self, app, bus):

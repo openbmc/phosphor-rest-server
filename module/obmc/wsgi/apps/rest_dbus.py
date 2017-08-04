@@ -314,18 +314,33 @@ class MethodHandler(RouteHandler):
         request.route_data['method'] = self.find(path, method)
 
     def do_post(self, path, method):
+        print "LEO------ do_post()"
+        return_val = None
+        was_deleted = False
         try:
-            if request.parameter_list:
-                return request.route_data['method'](*request.parameter_list)
-            else:
-                return request.route_data['method']()
+            max_repeat = 1
+            if method.lower() == 'delete':
+                print "LEO------ do_post() method: delete"
+                max_repeat = 20
+            for i in range(max_repeat):
+                print "LEO--------- i:",i
+                if request.parameter_list:
+                    return_val = request.route_data['method'](
+                                 *request.parameter_list)
+                else:
+                    return_val = request.route_data['method']()
+                was_deleted = True
 
         except dbus.exceptions.DBusException, e:
+            print "LEO--------- Exception  was_deleted:", was_deleted
+            if was_deleted:
+                return return_val
             if e.get_dbus_name() == DBUS_INVALID_ARGS:
                 abort(400, str(e))
             if e.get_dbus_name() == DBUS_TYPE_ERROR:
                 abort(400, str(e))
             raise
+        return return_val
 
     @staticmethod
     def find_method_in_interface(method, obj, interface, methods):

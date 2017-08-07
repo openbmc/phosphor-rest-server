@@ -63,6 +63,22 @@ def get_type_signature_by_introspection(bus, service, object_path,
                     return type_signature
 
 
+def get_method_signature(bus, service, object_path, interface, method):
+    obj = bus.get_object(service, object_path)
+    iface = dbus.Interface(obj, 'org.freedesktop.DBus.Introspectable')
+    xml_string = iface.Introspect()
+    arglist = []
+
+    root = ElementTree.fromstring(xml_string)
+    for dbus_intf in root.findall('interface'):
+        if (dbus_intf.get('name') == interface):
+            for dbus_method in dbus_intf.findall('method'):
+                if(dbus_method.get('name') == method):
+                    for arg in dbus_method.findall('arg'):
+                        arglist.append(arg.get('type'))
+                    return arglist
+
+
 def split_struct_signature(signature):
     struct_regex = r'(b|y|n|i|x|q|u|t|d|s|a\(.+?\)|\(.+?\))|a\{.+?\}+?'
     struct_matches = re.findall(struct_regex, signature)
@@ -295,6 +311,8 @@ class MethodHandler(RouteHandler):
     rules = '<path:path>/action/<method>'
     request_type = list
     content_type = 'application/json'
+    service = ''
+    interface = ''
 
     def __init__(self, app, bus):
         super(MethodHandler, self).__init__(
@@ -321,8 +339,30 @@ class MethodHandler(RouteHandler):
                 return request.route_data['method']()
 
         except dbus.exceptions.DBusException, e:
+            paramlist = []
             if e.get_dbus_name() == DBUS_INVALID_ARGS:
+
+                signature_list = get_method_signature(self.bus, self.service,
+                                                      path, self.interface,
+                                                      method)
+                if not signature_list:
+                    abort(400, "Failed to get method signature: %s" % str(e))
+                if len(signature_list) != len(request.parameter_list):
+                    abort(400, "Invalid number of args")
+                converted_value = None
+                try:
+                    for current, item in enumerate(signature_list):
+                        expected_type = signature_list[current]
+                        value = request.parameter_list[current]
+                        converted_value = convert_type(expected_type, value)
+                        paramlist.append(converted_value)
+                    request.parameter_list = paramlist
+                    self.do_post(path, method)
+                    return
+                except Exception as ex:
+                    abort(400, "Failed to convert the types")
                 abort(400, str(e))
+
             if e.get_dbus_name() == DBUS_TYPE_ERROR:
                 abort(400, str(e))
             raise
@@ -348,6 +388,8 @@ class MethodHandler(RouteHandler):
             m = self.find_method_in_interface(
                 method, obj, x, y.get('method'))
             if m:
+                self.service = bus
+                self.interface = x
                 return m
 
 

@@ -681,22 +681,24 @@ class ImageUploadUtils:
     def do_upload(cls, filename=''):
         if not os.path.exists(cls.file_loc):
             os.makedirs(cls.file_loc)
-        if not filename:
-            handle, filename = tempfile.mkstemp(cls.file_suffix,
-                                                cls.file_prefix, cls.file_loc)
-            os.close(handle)
-        else:
-            filename = os.path.join(cls.file_loc, filename)
-
         try:
+            if not filename:
+                handle, filename = tempfile.mkstemp(cls.file_suffix,
+                                                    cls.file_prefix,
+                                                    cls.file_loc)
+            else:
+                filename = os.path.join(cls.file_loc, filename)
+                handle = open(filename, "w")
+
             file_contents = request.body.read()
             request.body.close()
-            with open(filename, "w") as fd:
-                fd.write(file_contents)
+            handle.write(file_contents)
         except (IOError, ValueError), e:
             abort(400, str(e))
         except:
             abort(400, "Unexpected Error")
+        finally:
+            os.close(handle)
 
 
 class ImagePostHandler(RouteHandler):

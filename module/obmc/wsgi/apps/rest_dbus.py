@@ -684,19 +684,19 @@ class ImageUploadUtils:
         if not filename:
             handle, filename = tempfile.mkstemp(cls.file_suffix,
                                                 cls.file_prefix, cls.file_loc)
-            os.close(handle)
         else:
             filename = os.path.join(cls.file_loc, filename)
-
+            handle = os.open(filename, os.O_WRONLY|os.O_CREAT)
         try:
             file_contents = request.body.read()
             request.body.close()
-            with open(filename, "w") as fd:
-                fd.write(file_contents)
+            os.write(handle, file_contents)
         except (IOError, ValueError), e:
             abort(400, str(e))
         except:
-            abort(400, "Unexpected Error")
+            abort(400, "Unexpected Error!!")
+        finally:
+            os.close(handle)
 
 
 class ImagePostHandler(RouteHandler):

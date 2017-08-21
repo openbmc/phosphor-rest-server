@@ -682,9 +682,10 @@ class ImageUploadUtils:
         if not os.path.exists(cls.file_loc):
             os.makedirs(cls.file_loc)
         if not filename:
-            handle, filename = tempfile.mkstemp(cls.file_suffix,
-                                                cls.file_prefix, cls.file_loc)
-            os.close(handle)
+            filename = next(tempfile._get_candidate_names())
+            filename = os.path.join(cls.file_loc,
+                                    cls.file_prefix + filename +
+                                    cls.file_suffix)
         else:
             filename = os.path.join(cls.file_loc, filename)
 

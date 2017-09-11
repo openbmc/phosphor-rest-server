@@ -172,7 +172,6 @@ class RouteHandler(object):
         self._verbs = obmc.utils.misc.makelist(verbs)
         self._rules = rules
         self._content_type = content_type
-        self.intf_match = obmc.utils.misc.org_dot_openbmc_match
 
         if 'GET' in self._verbs:
             self._verbs = list(set(self._verbs + ['HEAD']))

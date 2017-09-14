@@ -29,6 +29,10 @@ import grp
 import crypt
 import tempfile
 import re
+from dbus.mainloop.glib import DBusGMainLoop
+DBusGMainLoop(set_as_default=True)
+import gobject
+import gevent
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -719,6 +723,61 @@ class ImagePostHandler(RouteHandler):
     def setup(self, **kw):
         pass
 
+class Notifier:
+    def __init__(self, wsock, filters):
+        self.wsock = wsock
+        bus = dbus.SystemBus()
+        if not filters:
+            filters.append(None)
+        for path in filters:
+            wsock.send("hi")
+            bus.add_signal_receiver(
+                self.interfaces_added_handler,
+                dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
+                signal_name='InterfacesAdded',
+                path=path)
+        loop = gobject.MainLoop()
+        # gobject's mainloop.run() will block the entire process, so the gevent
+        # scheduler and hence greenlets won't execute. The while-loop below
+        # works around this limitation by using gevent's sleep.
+        #loop.run()
+        gcontext = loop.get_context()
+        while not loop is None:
+            if gcontext.pending():
+                gcontext.iteration()
+            else:
+                # gevent.sleep puts only the current greenlet to sleep,
+                # not the entire process.
+                gevent.sleep(5)
+
+    def interfaces_added_handler(self, path, iprops, **kw):
+        self.wsock.send(str(path))
+
+
+class EventHandler(RouteHandler):
+
+    verbs = ['GET']
+    rules = ['/subscribe']
+
+    def __init__(self, app, bus):
+        super(EventHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+    def do_get(self):
+        wsock = request.environ.get('wsgi.websocket')
+        if not wsock:
+            abort(400, 'Expected WebSocket request.')
+        wsock.send("Connected")
+        filters = wsock.receive()
+        filters = json.loads(filters)
+        notifier = Notifier(wsock, filters)
+
 
 class ImagePutHandler(RouteHandler):
     ''' Handles the /upload/image/<filename> route. '''
@@ -1060,7 +1119,7 @@ class App(Bottle):
     def install_plugins(self):
         # install json api plugins
         json_kw = {'indent': 2, 'sort_keys': True}
-        self.install(AuthorizationPlugin())
+        #self.install(AuthorizationPlugin())
         self.install(CorsPlugin(self))
         self.install(ContentCheckerPlugin())
         self.install(JsonpPlugin(self, **json_kw))
@@ -1091,6 +1150,7 @@ class App(Bottle):
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
+        self.event_handler = EventHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1104,6 +1164,7 @@ class App(Bottle):
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
         self.download_dump_get_handler.install()
+        self.event_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

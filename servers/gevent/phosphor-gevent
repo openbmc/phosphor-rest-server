@@ -29,9 +29,6 @@ if __name__ == '__main__':
 
     exec 'from obmc.wsgi.apps.%s import App' % sys.argv[1]
 
-    default_cert = os.path.join(
-        sys.prefix, 'share', os.path.basename(__file__), 'cert.pem')
-
     app = App()
 
     if os.environ.get('LISTEN_PID', None) == str(os.getpid()):
@@ -40,8 +37,11 @@ if __name__ == '__main__':
             gevent.socket.AF_INET,
             gevent.socket.SOCK_STREAM)
     else:
-        bind = ('', 443)
+        if len(sys.argv) < 3:
+            sys.stderr.write('WSGI application required!')
+            sys.exit(1)
 
-    server = WSGIServer(
-        bind, app, keyfile=default_cert, certfile=default_cert)
+        bind = ('127.0.0.1', int(sys.argv[2]))
+
+    server = WSGIServer( bind, app )
     server.serve_forever()

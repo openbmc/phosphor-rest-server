@@ -23,14 +23,11 @@ import gevent
 from gevent.pywsgi import WSGIServer
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        sys.stderr.write('WSGI application required!')
+    if len(sys.argv) < 3:
+        sys.stderr.write('WSGI application and port required!')
         sys.exit(1)
 
     exec 'from obmc.wsgi.apps.%s import App' % sys.argv[1]
-
-    default_cert = os.path.join(
-        sys.prefix, 'share', os.path.basename(__file__), 'cert.pem')
 
     app = App()
 
@@ -40,8 +37,7 @@ if __name__ == '__main__':
             gevent.socket.AF_INET,
             gevent.socket.SOCK_STREAM)
     else:
-        bind = ('', 443)
+        bind = ('127.0.0.1', int(sys.argv[2]))
 
-    server = WSGIServer(
-        bind, app, keyfile=default_cert, certfile=default_cert)
+    server = WSGIServer( bind, app )
     server.serve_forever()

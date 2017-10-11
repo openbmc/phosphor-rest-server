@@ -21,6 +21,7 @@ import sys
 import os
 import gevent
 from gevent.pywsgi import WSGIServer
+from geventwebsocket.handler import WebSocketHandler
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -43,5 +44,6 @@ if __name__ == '__main__':
         bind = ('', 443)
 
     server = WSGIServer(
-        bind, app, keyfile=default_cert, certfile=default_cert)
+        bind, app, handler_class=WebSocketHandler,
+        keyfile=default_cert, certfile=default_cert)
     server.serve_forever()

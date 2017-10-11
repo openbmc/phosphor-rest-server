@@ -45,8 +45,8 @@ if __name__ == '__main__':
     if os.environ.get('LISTEN_PID', None) == str(os.getpid()):
         FIRST_SYSTEMD_SOCKET_FD = 3
         bind = gevent.socket.fromfd(FIRST_SYSTEMD_SOCKET_FD,
-            gevent.socket.AF_INET,
-            gevent.socket.SOCK_STREAM)
+                                    gevent.socket.AF_INET,
+                                    gevent.socket.SOCK_STREAM)
     else:
         bind = ('', 443)
 

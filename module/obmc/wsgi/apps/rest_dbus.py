@@ -719,6 +719,30 @@ class ImagePostHandler(RouteHandler):
         pass
 
 
+class EventHandler(RouteHandler):
+    ''' Handles the /subscribe route, for clients to be able
+        to subscribe to BMC events. '''
+
+    verbs = ['GET']
+    rules = ['/subscribe']
+
+    def __init__(self, app, bus):
+        super(EventHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+    def do_get(self):
+        wsock = request.environ.get('wsgi.websocket')
+        if not wsock:
+            abort(400, 'Expected WebSocket request.')
+        wsock.send("Connected")
+
+
 class ImagePutHandler(RouteHandler):
     ''' Handles the /upload/image/<filename> route. '''
 
@@ -1047,6 +1071,9 @@ class ContentCheckerPlugin(object):
 class App(Bottle):
     def __init__(self, **kw):
         super(App, self).__init__(autojson=False)
+
+        self.have_wsock = kw.get('have_wsock', False)
+
         self.bus = dbus.SystemBus()
         self.mapper = obmc.mapper.Mapper(self.bus)
         self.error_callbacks = []
@@ -1090,6 +1117,8 @@ class App(Bottle):
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
+        if self.have_wsock:
+            self.event_handler = EventHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1103,6 +1132,8 @@ class App(Bottle):
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
         self.download_dump_get_handler.install()
+        if self.have_wsock:
+            self.event_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

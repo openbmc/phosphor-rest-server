@@ -1045,7 +1045,7 @@ class ContentCheckerPlugin(object):
 
 
 class App(Bottle):
-    def __init__(self):
+    def __init__(self, **kw):
         super(App, self).__init__(autojson=False)
         self.bus = dbus.SystemBus()
         self.mapper = obmc.mapper.Mapper(self.bus)

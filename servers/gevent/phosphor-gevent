@@ -21,6 +21,11 @@ import sys
 import os
 import gevent
 from gevent.pywsgi import WSGIServer
+have_wsock = True
+try:
+    from geventwebsocket.handler import WebSocketHandler
+except ImportError:
+    have_wsock = False
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -32,7 +37,10 @@ if __name__ == '__main__':
     default_cert = os.path.join(
         sys.prefix, 'share', os.path.basename(__file__), 'cert.pem')
 
-    app = App()
+    kw = {}
+    if have_wsock:
+        kw['have_wsock'] = True
+    app = App(**kw)
 
     if os.environ.get('LISTEN_PID', None) == str(os.getpid()):
         FIRST_SYSTEMD_SOCKET_FD = 3
@@ -42,6 +50,9 @@ if __name__ == '__main__':
     else:
         bind = ('', 443)
 
+    kw = {}
+    if have_websock:
+        kw['handler_class'] = WebSocketHandler
     server = WSGIServer(
-        bind, app, keyfile=default_cert, certfile=default_cert)
+        bind, app, keyfile=default_cert, certfile=default_cert, **kw)
     server.serve_forever()

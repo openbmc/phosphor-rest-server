@@ -29,7 +29,18 @@ import grp
 import crypt
 import tempfile
 import re
-
+have_wsock = True
+try:
+    from geventwebsocket import WebSocketError
+except ImportError:
+    have_wsock = False
+if have_wsock:
+    from dbus.mainloop.glib import DBusGMainLoop
+    DBusGMainLoop(set_as_default=True)
+    import gobject
+    import gevent
+    
+have_wsock = False
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.UnknownInterface'
 DBUS_UNKNOWN_INTERFACE_ERROR = 'org.freedesktop.DBus.Error.UnknownInterface'
 DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
@@ -719,6 +730,81 @@ class ImagePostHandler(RouteHandler):
         pass
 
 
+class EventNotifier:
+    keyNames = {}
+    keyNames['event'] = 'event'
+    keyNames['path'] = 'path'
+    keyNames['intfMap'] = 'interfaces'
+    keyNames['propMap'] = 'properties'
+    keyNames['intf'] = 'interface'
+
+    def __init__(self, wsock, filters):
+        self.wsock = wsock
+        self.paths = filters.get("paths", [])
+        self.interfaces = filters.get("interfaces", [])
+        if not self.paths:
+            self.paths.append(None)
+        bus = dbus.SystemBus()
+        # Add a signal receiver for every path the client is interested in
+        for path in self.paths:
+            bus.add_signal_receiver(
+                self.interfaces_added_handler,
+                dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
+                signal_name='InterfacesAdded',
+                path=path)
+            bus.add_signal_receiver(
+                self.properties_changed_handler,
+                dbus_interface=dbus.PROPERTIES_IFACE,
+                signal_name='PropertiesChanged',
+                path=path,
+                path_keyword='path')
+        loop = gobject.MainLoop()
+        # gobject's mainloop.run() will block the entire process, so the gevent
+        # scheduler and hence greenlets won't execute. The while-loop below
+        # works around this limitation by using gevent's sleep, instead of
+        # calling loop.run()
+        gcontext = loop.get_context()
+        while loop is not None:
+            try:
+                if gcontext.pending():
+                    gcontext.iteration()
+                else:
+                    # gevent.sleep puts only the current greenlet to sleep,
+                    # not the entire process.
+                    gevent.sleep(5)
+            except WebSocketError:
+                break
+
+    def interfaces_added_handler(self, path, iprops, **kw):
+        ''' If the client is interested in these changes, respond to the
+            client. This handles d-bus interface additions.'''
+        if (not self.interfaces) or \
+           (not set(iprops).isdisjoint(self.interfaces)):
+            response = {}
+            response[self.keyNames['event']] = "InterfacesAdded"
+            response[self.keyNames['path']] = path
+            response[self.keyNames['intfMap']] = iprops
+            try:
+                self.wsock.send(json.dumps(response))
+            except WebSocketError:
+                return
+
+    def properties_changed_handler(self, interface, new, old, **kw):
+        ''' If the client is interested in these changes, respond to the
+            client. This handles d-bus property changes. '''
+        if (not self.interfaces) or (interface in self.interfaces):
+            path = str(kw['path'])
+            response = {}
+            response[self.keyNames['event']] = "PropertiesChanged"
+            response[self.keyNames['path']] = path
+            response[self.keyNames['intf']] = interface
+            response[self.keyNames['propMap']] = new
+            try:
+                self.wsock.send(json.dumps(response))
+            except WebSocketError:
+                return
+
+
 class EventHandler(RouteHandler):
     ''' Handles the /subscribe route, for clients to be able
         to subscribe to BMC events. '''
@@ -740,7 +826,9 @@ class EventHandler(RouteHandler):
         wsock = request.environ.get('wsgi.websocket')
         if not wsock:
             abort(400, 'Expected WebSocket request.')
-        wsock.send("Connected")
+        filters = wsock.receive()
+        filters = json.loads(filters)
+        notifier = EventNotifier(wsock, filters)
 
 
 class ImagePutHandler(RouteHandler):

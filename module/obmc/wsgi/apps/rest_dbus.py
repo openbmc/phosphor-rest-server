@@ -1242,7 +1242,7 @@ class App(Bottle):
         return route, args
 
     def custom_error_handler(self, res, error):
-        ''' Allow plugins to modify error reponses too via this custom
+        ''' Allow plugins to modify error responses too via this custom
             error handler. '''
 
         response_object = {}

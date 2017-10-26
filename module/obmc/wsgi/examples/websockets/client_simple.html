@@ -2,9 +2,9 @@
 <html>
 <head>
   <script type="text/javascript">
-    // This simple example subscribes, via websocket, to certain events occuring
+    // This simple example subscribes, via websocket, to certain events occurring
     // on the BMC. Specfically, it's interested in an d-bus events (object
-    // creations, property changes), occuring in the d-bus namespaces
+    // creations, property changes), occurring in the d-bus namespaces
     // /xyz/openbmc_project/logging and /xyz/openbmc_project/sensors. It's also
     // interested in the interfaces xyz.openbmc_project.Logging.Entry and
     // xyz.openbmc_project.Sensor.Value being added, or property changes to
@@ -23,7 +23,7 @@
     // Send in array of d-bus paths and interfaces of interest over the
     // websocket. Either/both of them can be an empty array. The arrays
     // need to be sent in a JSON dictionary.
-    // Client will be notified of events occuring on these paths and/or
+    // Client will be notified of events occurring on these paths and/or
     // interfaces.
     var data = JSON.stringify(
         {

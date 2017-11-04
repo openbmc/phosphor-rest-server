@@ -328,24 +328,28 @@ class MethodHandler(RouteHandler):
         self.interface = ''
 
     def find(self, path, method):
+        method_list = []
         busses = self.try_mapper_call(
             self.mapper.get_object, path=path)
         for items in busses.iteritems():
             m = self.find_method_on_bus(path, method, *items)
             if m:
-                return m
+                method_list.append(m)
+        return method_list
 
         abort(404, _4034_msg % ('method', 'found', method))
 
     def setup(self, path, method):
-        request.route_data['method'] = self.find(path, method)
+        request.route_data['map'] = self.find(path, method)
 
     def do_post(self, path, method):
         try:
-            if request.parameter_list:
-                return request.route_data['method'](*request.parameter_list)
-            else:
-                return request.route_data['method']()
+            for item in request.route_data['map']:
+                if request.parameter_list:
+                    item(*request.parameter_list)
+                else:
+                    item()
+            return
 
         except dbus.exceptions.DBusException, e:
             paramlist = []

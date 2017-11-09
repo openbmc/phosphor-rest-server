@@ -693,7 +693,7 @@ class ImageUploadUtils:
     @classmethod
     def do_upload(cls, filename=''):
         if not os.path.exists(cls.file_loc):
-            os.makedirs(cls.file_loc)
+            abort(400, "Error Directory not found")
         if not filename:
             handle, filename = tempfile.mkstemp(cls.file_suffix,
                                                 cls.file_prefix, cls.file_loc)

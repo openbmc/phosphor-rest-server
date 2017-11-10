@@ -10,12 +10,13 @@
     // xyz.openbmc_project.Sensor.Value being added, or property changes to
     // these interfaces.
 
-
-    // Insert code here to log-on to the BMC. At the moment of writing this
-    // example, I don't know how to do that in javascript (I had disabled the
-    // the authorization plug-in in rest_dbus.py to test this example). See
-    // https://github.com/openbmc/docs/blob/master/rest-api.md for the log-on
-    // API.
+    // Login to the BMC.
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "https://<BMC IP>/login", true);
+    // Set 'withCredentials' to be able to send back login session cookie.
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("Content-type", "application/json");
+    xhr.send(JSON.stringify({data: ["<username>", "<password>"]}));
 
     // Open a new secure websocket. The rest server on the BMC
     // only supports the /subscribe route with websockets as of now.
@@ -46,6 +47,7 @@
                     // If the d-bus path is in the response, let's do a GET on
                     // that path.
                     var xhr = new XMLHttpRequest();
+                    xhr.withCredentials = true;
                     var url = "https://<BMC IP>" + value;
                     xhr.open("GET", url, true);
                     xhr.setRequestHeader("Content-type", "application/json");

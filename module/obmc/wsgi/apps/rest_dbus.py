@@ -346,10 +346,9 @@ class MethodHandler(RouteHandler):
         try:
             for item in request.route_data['map']:
                 if request.parameter_list:
-                    item(*request.parameter_list)
+                    return item(*request.parameter_list)
                 else:
-                    item()
-            return
+                    return item()
 
         except dbus.exceptions.DBusException, e:
             paramlist = []

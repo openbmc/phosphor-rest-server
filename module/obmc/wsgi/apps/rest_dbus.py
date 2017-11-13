@@ -335,7 +335,8 @@ class MethodHandler(RouteHandler):
             m = self.find_method_on_bus(path, method, *items)
             if m:
                 method_list.append(m)
-        return method_list
+        if len(method_list):
+            return method_list
 
         abort(404, _4034_msg % ('method', 'found', method))
 
@@ -344,12 +345,32 @@ class MethodHandler(RouteHandler):
 
     def do_post(self, path, method):
         try:
-            for item in request.route_data['map']:
+            #To see if the return type is capable of being merged
+            if len(request.route_data['map']) > 1:
+                args = []
                 if request.parameter_list:
-                    item(*request.parameter_list)
-                else:
-                    item()
-            return
+                   args = request.parameter_list
+                results = None
+                for item in request.route_data['map']:
+                    tmp = item(*args)
+                    if not results:
+                        if tmp is not None:
+                            results = type(tmp)()
+                    if isinstance(results, dict):
+                        results = results.update(tmp)
+                    elif isinstance(results, list):
+                        results = results + tmp
+                    elif isinstance(results, type(None)):
+                        results = None
+                        pass
+                    else:
+                        abort(501,'Don\'t know how to merge method call results of {}'.format(type(tmp)))
+                return results
+            #there is only one method
+            if request.parameter_list:
+                return request.route_data['map'][0](*request.parameter_list)
+
+            return request.route_data['map'][0]()
 
         except dbus.exceptions.DBusException, e:
             paramlist = []

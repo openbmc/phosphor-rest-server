@@ -344,12 +344,21 @@ class MethodHandler(RouteHandler):
 
     def do_post(self, path, method):
         try:
+            results = []
             for item in request.route_data['map']:
                 if request.parameter_list:
-                    item(*request.parameter_list)
+                    temp = item(*request.parameter_list)
                 else:
-                    item()
-            return
+                    temp = item()
+                if type(temp) is list:
+                    results = results + temp
+                elif type(temp) is dict:
+                    results = results.update(temp)
+                elif type(temp) is None:
+                    pass
+                else:
+                    abort(400, "Invalid return value")
+            return results
 
         except dbus.exceptions.DBusException, e:
             paramlist = []

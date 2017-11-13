@@ -344,12 +344,13 @@ class MethodHandler(RouteHandler):
 
     def do_post(self, path, method):
         try:
+            retrun_list = []
             for item in request.route_data['map']:
                 if request.parameter_list:
-                    item(*request.parameter_list)
+                    retrun_list.append(item(*request.parameter_list))
                 else:
-                    item()
-            return
+                    retrun_list.append(item())
+            return retrun_list
 
         except dbus.exceptions.DBusException, e:
             paramlist = []

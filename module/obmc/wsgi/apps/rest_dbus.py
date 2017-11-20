@@ -326,6 +326,7 @@ class MethodHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
         self.service = ''
         self.interface = ''
+        self.retry = True
 
     def find(self, path, method):
         method_list = []
@@ -365,13 +366,16 @@ class MethodHandler(RouteHandler):
                     else:
                         abort(501, 'Don\'t know how to merge method call '
                                    'results of {}'.format(type(tmp)))
+                self.retry = True
                 return results
             # There is only one method
-            return request.route_data['map'][0](*args)
+            result = request.route_data['map'][0](*args)
+            self.retry = True
+            return result
 
         except dbus.exceptions.DBusException, e:
             paramlist = []
-            if e.get_dbus_name() == DBUS_INVALID_ARGS:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS and self.retry == True:
 
                 signature_list = get_method_signature(self.bus, self.service,
                                                       path, self.interface,
@@ -387,6 +391,7 @@ class MethodHandler(RouteHandler):
                         converted_value = convert_type(expected_type, value)
                         paramlist.append(converted_value)
                     request.parameter_list = paramlist
+                    self.retry = False
                     self.do_post(path, method)
                     return
                 except Exception as ex:
@@ -395,6 +400,7 @@ class MethodHandler(RouteHandler):
 
             if e.get_dbus_name() == DBUS_TYPE_ERROR:
                 abort(400, str(e))
+            self.retry = True
             raise
 
     @staticmethod
@@ -431,6 +437,7 @@ class PropertyHandler(RouteHandler):
     def __init__(self, app, bus):
         super(PropertyHandler, self).__init__(
             app, bus, self.verbs, self.rules, self.content_type)
+        self.retry = True
 
     def find(self, path, prop):
         self.app.instance_handler.setup(path)
@@ -462,10 +469,11 @@ class PropertyHandler(RouteHandler):
             path, prop, request.route_data['map'][path])
         try:
             properties_iface.Set(iface, prop, value)
+            self.retry = True
         except ValueError, e:
             abort(400, str(e))
         except dbus.exceptions.DBusException, e:
-            if e.get_dbus_name() == DBUS_INVALID_ARGS:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS and self.retry == True:
                 bus_name = properties_iface.bus_name
                 expected_type = get_type_signature_by_introspection(self.bus,
                                                                     bus_name,
@@ -475,6 +483,7 @@ class PropertyHandler(RouteHandler):
                     abort(403, "Failed to get expected type: %s" % str(e))
                 converted_value = None
                 try:
+                    self.retry = False
                     converted_value = convert_type(expected_type, value)
                     self.do_put(path, prop, converted_value)
                     return
@@ -482,6 +491,7 @@ class PropertyHandler(RouteHandler):
                     abort(403, "Failed to convert %s to type %s" %
                           (value, expected_type))
                 abort(403, str(e))
+            self.retry = True
             raise
 
     def get_host_interface(self, path, prop, bus_info):

@@ -342,6 +342,8 @@ class MethodHandler(RouteHandler):
 
     def setup(self, path, method):
         request.route_data['map'] = self.find(path, method)
+        # Retry do_post only once with converted value.
+        self.retry = True
 
     def do_post(self, path, method):
         try:
@@ -371,7 +373,7 @@ class MethodHandler(RouteHandler):
 
         except dbus.exceptions.DBusException, e:
             paramlist = []
-            if e.get_dbus_name() == DBUS_INVALID_ARGS:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS and self.retry == True:
 
                 signature_list = get_method_signature(self.bus, self.service,
                                                       path, self.interface,
@@ -387,6 +389,7 @@ class MethodHandler(RouteHandler):
                         converted_value = convert_type(expected_type, value)
                         paramlist.append(converted_value)
                     request.parameter_list = paramlist
+                    self.retry = False
                     self.do_post(path, method)
                     return
                 except Exception as ex:
@@ -449,6 +452,8 @@ class PropertyHandler(RouteHandler):
         name, obj = self.find(path, prop)
         request.route_data['obj'] = obj
         request.route_data['name'] = name
+        # Retry do_put only once with converted value.
+        self.retry = True
 
     def do_get(self, path, prop):
         name = request.route_data['name']
@@ -465,7 +470,7 @@ class PropertyHandler(RouteHandler):
         except ValueError, e:
             abort(400, str(e))
         except dbus.exceptions.DBusException, e:
-            if e.get_dbus_name() == DBUS_INVALID_ARGS:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS and self.retry == True:
                 bus_name = properties_iface.bus_name
                 expected_type = get_type_signature_by_introspection(self.bus,
                                                                     bus_name,
@@ -475,6 +480,7 @@ class PropertyHandler(RouteHandler):
                     abort(403, "Failed to get expected type: %s" % str(e))
                 converted_value = None
                 try:
+                    self.retry = False
                     converted_value = convert_type(expected_type, value)
                     self.do_put(path, prop, converted_value)
                     return

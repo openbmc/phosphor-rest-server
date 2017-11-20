@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script type="text/javascript">
+    // Login to the BMC.
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "https://<BMC IP>/login", true);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("Content-type", "application/json");
+    xhr.send(JSON.stringify({data: ["<username>", "<password>"]}));
+
+    // Open websocket for event notification, set filter.
+    var ws = new WebSocket("wss://<BMC IP>/subscribe");
+    var data =
+        JSON.stringify(
+            {
+                // Interested in the ambient temperature sensor,
+                "paths": ["/xyz/openbmc_project/sensors/temperature/ambient"],
+                // if it goes critical.
+                "interfaces": ["xyz.openbmc_project.Sensor.Threshold.Critical"]
+            });
+    ws.onopen = function() {
+        // Send event filter to BMC over the websocket.
+        ws.send(data);
+    };
+    ws.onmessage = function (evt) {
+        var response = JSON.parse(evt.data);
+        // The d-bus object path on which the event originated
+        var path = response["path"];
+        // The type of the event
+        var event = response["event"];
+        // The d-bus interface on which the event originated
+        var interface = response["interface"];
+        // The d-bus proprties that changed
+        var properties = response["properties"];
+        // Interested in the 'PropertiesChanged' event occuring on the
+        // 'xyz.openbmc_project.Sensor.Threshold.Critical' interface.
+        if ("PropertiesChanged" == event &&
+            "xyz.openbmc_project.Sensor.Threshold.Critical" == interface)
+        {
+            var isCriticalHigh = false;
+            var isCriticalLow = false;
+            if ("CriticalAlarmHigh" in properties) {
+                // Read and consume 'CriticalAlarmHigh' property.
+                isCriticalHigh = properties["CriticalAlarmHigh"];
+            }
+            if ("CriticalAlarmLow" in properties) {
+                // Read and consume 'CriticalAlarmLow' property.
+                isCriticalLow = properties["CriticalAlarmLow"];
+            }
+        }
+    };
+  </script>
+</head>
+</html>

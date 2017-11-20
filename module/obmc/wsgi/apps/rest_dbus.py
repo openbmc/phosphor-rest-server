@@ -413,6 +413,7 @@ class PropertyHandler(RouteHandler):
     def __init__(self, app, bus):
         super(PropertyHandler, self).__init__(
             app, bus, self.verbs, self.rules, self.content_type)
+        self.convert = False
 
     def find(self, path, prop):
         self.app.instance_handler.setup(path)
@@ -444,10 +445,11 @@ class PropertyHandler(RouteHandler):
             path, prop, request.route_data['map'][path])
         try:
             properties_iface.Set(iface, prop, value)
+            self.convert = False
         except ValueError, e:
             abort(400, str(e))
         except dbus.exceptions.DBusException, e:
-            if e.get_dbus_name() == DBUS_INVALID_ARGS:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS and self.convert == False:
                 bus_name = properties_iface.bus_name
                 expected_type = get_type_signature_by_introspection(self.bus,
                                                                     bus_name,
@@ -457,6 +459,7 @@ class PropertyHandler(RouteHandler):
                     abort(403, "Failed to get expected type: %s" % str(e))
                 converted_value = None
                 try:
+                    self.convert = True
                     converted_value = convert_type(expected_type, value)
                     self.do_put(path, prop, converted_value)
                     return

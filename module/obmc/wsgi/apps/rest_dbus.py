@@ -244,7 +244,7 @@ class RouteHandler(object):
         try:
             return f(*a)
         except dbus.exceptions.DBusException, e:
-            if DBUS_UNKNOWN_INTERFACE in e.get_dbus_message():
+            if DBUS_UNKNOWN_INTERFACE in e.get_dbus_name():
                 # interface doesn't have any properties
                 return None
             if DBUS_UNKNOWN_INTERFACE_ERROR in e.get_dbus_name():

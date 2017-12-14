@@ -390,7 +390,7 @@ class MethodHandler(RouteHandler):
                     self.do_post(path, method, False)
                     return
                 except Exception as ex:
-                    abort(400, "Failed to convert the types")
+                    abort(400, "Bad Request/Invalid Args given")
                 abort(400, str(e))
 
             if e.get_dbus_name() == DBUS_TYPE_ERROR:

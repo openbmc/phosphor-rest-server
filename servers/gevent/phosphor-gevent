@@ -42,6 +42,23 @@ if __name__ == '__main__':
         kw['have_wsock'] = True
     app = App(**kw)
 
+    # ECDH - Allow Elliptic Curve Diffie Hellman
+    # kDH - Allow Key Exchange algorithm as Diffie Hellman
+    # kEDH - Allow Key Exchange algorithm as Ephemeral Diffie Hellman
+    # kRSA - Allow Key Exchange algorithm as RSA
+    # !SSLv3 - Disallows any ciphers specific to SSLv3
+    # !SSLv2 - Disallows any ciphers specific to SSLv2 protocol
+    # !aNULL - Disallows anonymous authentication or no authentication
+    # !eNULL - Disallows connection with NULL encryption
+    # !LOW -   Disallows any low strength ciphers
+    # !MEDIUM- Disallows medium strength ciphers
+
+    ssl_ciphers = (
+    'ECDH:kDH:kEDH:kRSA:!SSLv3:!SSLv2:!aNULL:!eNULL:!LOW:!MEDIUM:@STRENGTH'
+    )
+
+    app = App()
+
     if os.environ.get('LISTEN_PID', None) == str(os.getpid()):
         FIRST_SYSTEMD_SOCKET_FD = 3
         bind = gevent.socket.fromfd(FIRST_SYSTEMD_SOCKET_FD,
@@ -54,5 +71,5 @@ if __name__ == '__main__':
     if have_wsock:
         kw['handler_class'] = WebSocketHandler
     server = WSGIServer(
-        bind, app, keyfile=default_cert, certfile=default_cert, **kw)
+        bind, app, keyfile=default_cert, certfile=default_cert, ciphers=ssl_ciphers)
     server.serve_forever()

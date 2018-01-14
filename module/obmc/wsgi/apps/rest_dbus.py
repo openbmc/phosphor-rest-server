@@ -966,6 +966,12 @@ class CorsPlugin(object):
             response.add_header('Access-Control-Allow-Methods', method)
             response.add_header(
                 'Access-Control-Allow-Headers', 'Content-Type')
+            response.add_header('X-Frame-Options','sameorigin')
+            response.add_header('X-Content-Type-Options', 'nosniff')
+            response.add_header('X-XSS-Protection', '1; mode=block')
+            response.add_header('X-Content-Security-Policy', "allow 'self'")
+            response.add_header(
+                'Strict-Transport-Security', 'max-age=31536000')
 
     def __init__(self, app):
         app.install_error_callback(self.error_callback)

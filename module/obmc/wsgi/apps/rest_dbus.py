@@ -367,7 +367,7 @@ class MethodHandler(RouteHandler):
 
         except dbus.exceptions.DBusException, e:
             paramlist = []
-            if e.get_dbus_name() == DBUS_INVALID_ARGS and retry == True:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS and retry:
 
                 signature_list = get_method_signature(self.bus, self.service,
                                                       path, self.interface,
@@ -461,7 +461,7 @@ class PropertyHandler(RouteHandler):
         except ValueError, e:
             abort(400, str(e))
         except dbus.exceptions.DBusException, e:
-            if e.get_dbus_name() == DBUS_INVALID_ARGS and retry == True:
+            if e.get_dbus_name() == DBUS_INVALID_ARGS and retry:
                 bus_name = properties_iface.bus_name
                 expected_type = get_type_signature_by_introspection(self.bus,
                                                                     bus_name,

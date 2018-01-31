@@ -71,5 +71,6 @@ if __name__ == '__main__':
     if have_wsock:
         kw['handler_class'] = WebSocketHandler
     server = WSGIServer(
-        bind, app, keyfile=default_cert, certfile=default_cert, ciphers=ssl_ciphers)
+        bind, app, keyfile=default_cert, certfile=default_cert,
+        ciphers=ssl_ciphers, **kw)
     server.serve_forever()

@@ -29,6 +29,7 @@ import grp
 import crypt
 import tempfile
 import re
+import mimetypes
 have_wsock = True
 try:
     from geventwebsocket import WebSocketError
@@ -47,6 +48,8 @@ DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
+
+www_base_path = '/usr/share/www/'
 
 
 def valid_user(session, *a, **kw):
@@ -905,6 +908,91 @@ class DownloadDumpHandler(RouteHandler):
                            download=True, mimetype=self.content_type)
 
 
+class WebHandler(RouteHandler):
+    ''' Handles the routes for the web UI files. '''
+
+    verbs = 'GET'
+
+    #Match only what we know are web files, so everything else
+    #can get routed to the REST handlers.
+    rules = ['//', '/<filename:re:.+\.js>', '/<filename:re:.+\.svg>',
+             '/<filename:re:.+\.css>', '/<filename:re:.+\.ttf>',
+             '/<filename:re:.+\.eot>', '/<filename:re:.+\.woff>',
+             '/<filename:re:.+\.woff2>', '/<filename:re:.+\.map>',
+             '/<filename:re:.+\.png>', '/<filename:re:.+\.html>',
+             '/<filename:re:.+\.ico>']
+
+    #The mimetypes module knows about most types, but not these
+    content_types = {
+        '.eot': 'application/vnd.ms-fontobject',
+        '.woff': 'application/x-font-woff',
+        '.woff2': 'application/x-font-woff2',
+        '.ttf': 'application/x-font-ttf',
+        '.map': 'application/json'
+    }
+
+    _require_auth = None
+    suppress_json_resp = True
+
+    def __init__(self, app, bus):
+        super(WebHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def get_type(self, filename):
+        ''' Returns the content type and encoding for a file '''
+
+        content_type, encoding = mimetypes.guess_type(filename)
+
+        #Try our own list if mimetypes didn't recognize it
+        if content_type is None:
+            if filename[-3:] == '.gz':
+                filename = filename[:-3]
+            extension = filename[filename.rfind('.'):]
+            content_type = self.content_types.get(extension, None)
+
+        return content_type, encoding
+
+    def do_get(self, filename='index.html'):
+
+        #If a gzipped version exists, use that instead.
+        #Possible future enhancement: if the client doesn't
+        #accept compressed files, unzip it ourselves before sending.
+        if not os.path.exists(os.path.join(www_base_path, filename)):
+            filename = filename + '.gz'
+
+        #Though bottle should protect us, ensure path is valid
+        realpath = os.path.realpath(filename)
+        if realpath[0] == '/':
+            realpath = realpath[1:]
+        if not os.path.exists(os.path.join(www_base_path, realpath)):
+            abort(404, "Path not found")
+
+        mimetype, encoding = self.get_type(filename)
+
+        #Couldn't find the type - let static_file() deal with it,
+        #though this should never happen.
+        if mimetype is None:
+            print("Can't figure out content-type for %s" % filename)
+            mimetype = 'auto'
+
+        #This call will set several header fields for us,
+        #including the charset if the type is text.
+        response = static_file(filename, www_base_path, mimetype)
+
+        #static_file() will only set the encoding if the
+        #mimetype was auto, so set it here.
+        if encoding is not None:
+            response.set_header('Content-Encoding', encoding)
+
+        return response
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
 class AuthorizationPlugin(object):
     ''' Invokes an optional list of authorization callbacks. '''
 
@@ -1221,6 +1309,7 @@ class App(Bottle):
     def create_handlers(self):
         # create route handlers
         self.session_handler = SessionHandler(self, self.bus)
+        self.web_handler = WebHandler(self, self.bus)
         self.directory_handler = DirectoryHandler(self, self.bus)
         self.list_names_handler = ListNamesHandler(self, self.bus)
         self.list_handler = ListHandler(self, self.bus)
@@ -1236,6 +1325,7 @@ class App(Bottle):
 
     def install_handlers(self):
         self.session_handler.install()
+        self.web_handler.install()
         self.directory_handler.install()
         self.list_names_handler.install()
         self.list_handler.install()

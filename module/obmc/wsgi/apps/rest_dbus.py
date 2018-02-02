@@ -48,6 +48,8 @@ DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
 
+www_base_path = '/usr/share/www/'
+
 
 def valid_user(session, *a, **kw):
     ''' Authorization plugin callback that checks
@@ -905,6 +907,82 @@ class DownloadDumpHandler(RouteHandler):
                            download=True, mimetype=self.content_type)
 
 
+class WebHandler(RouteHandler):
+    ''' Handles the /web route. '''
+
+    verbs = 'GET'
+    rules = ['/web', '/web/']
+    _require_auth = None
+    suppress_json_resp = True
+
+    def __init__(self, app, bus):
+        super(WebHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def do_get(self):
+        return static_file('index.html.gz', www_base_path)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
+class WebFileHandler(RouteHandler):
+    ''' Handles the /web/*.* web route. '''
+
+    verbs = 'GET'
+    rules = ['/web/<filename>']
+
+    _require_auth = None
+    suppress_json_resp = True
+
+    def __init__(self, app, bus):
+        super(WebFileHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def do_get(self, filename):
+        if os.path.exists(os.path.join(www_base_path, filename + '.gz')):
+            filename = filename + '.gz'
+
+        return static_file(filename, www_base_path)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
+class WebDirFileHandler(RouteHandler):
+    ''' Handles the /web/<path>/*.* web route. '''
+
+    verbs = 'GET'
+    rules = ['/web/<path:path>/<filename>']
+
+    _require_auth = None
+    suppress_json_resp = True
+
+    def __init__(self, app, bus):
+        super(WebDirFileHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def do_get(self, path, filename):
+
+        abs_path = os.path.join(www_base_path, path)
+        if os.path.exists(os.path.join(abs_path, filename + '.gz')):
+            filename = filename + '.gz'
+
+        return static_file(filename, abs_path)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
 class AuthorizationPlugin(object):
     ''' Invokes an optional list of authorization callbacks. '''
 
@@ -1230,6 +1308,9 @@ class App(Bottle):
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
+        self.web_handler = WebHandler(self, self.bus)
+        self.web_file_handler = WebFileHandler(self, self.bus)
+        self.web_dir_file_handler = WebDirFileHandler(self, self.bus)
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
@@ -1245,6 +1326,9 @@ class App(Bottle):
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
         self.download_dump_get_handler.install()
+        self.web_handler.install()
+        self.web_file_handler.install()
+        self.web_dir_file_handler.install()
         if self.have_wsock:
             self.event_handler.install()
         # this has to come last, since it matches everything

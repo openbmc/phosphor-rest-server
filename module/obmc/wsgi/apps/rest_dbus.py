@@ -905,6 +905,84 @@ class DownloadDumpHandler(RouteHandler):
                            download=True, mimetype=self.content_type)
 
 
+class WebHandler(RouteHandler):
+    ''' Handles the /web route. '''
+
+    verbs = 'GET'
+    rules = ['/web', '/web/']
+    _require_auth = None
+    suppress_json_resp = True
+
+    def __init__(self, app, bus):
+        super(WebHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def do_get(self):
+        return static_file('index.html.gz', '/usr/share/www')
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
+class WebFileHandler(RouteHandler):
+    ''' Handles the /web/*.* web route. '''
+
+    basePath = '/usr/share/www'
+    verbs = 'GET'
+    rules = ['/web/<fileName>']
+
+    _require_auth = None
+    suppress_json_resp = True
+
+    def __init__(self, app, bus):
+        super(WebFileHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def do_get(self, fileName):
+        if os.path.exists(os.path.join(self.basePath, fileName + '.gz')):
+            fileName = fileName + '.gz'
+
+        return static_file(fileName, self.basePath)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
+class WebDirFileHandler(RouteHandler):
+    ''' Handles the /web/path/*.* web route. '''
+
+    basePath = '/usr/share/www'
+    verbs = 'GET'
+    rules = ['/web/<path:path>/<fileName>']
+
+    _require_auth = None
+    suppress_json_resp = True
+
+    def __init__(self, app, bus):
+        super(WebDirFileHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def do_get(self, path, fileName):
+
+        absolutePath = os.path.join(self.basePath, path)
+        if os.path.exists(os.path.join(absolutePath, fileName + '.gz')):
+            fileName = fileName + '.gz'
+
+        return static_file(fileName, absolutePath)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
 class AuthorizationPlugin(object):
     ''' Invokes an optional list of authorization callbacks. '''
 
@@ -1230,6 +1308,9 @@ class App(Bottle):
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
+        self.web_handler = WebHandler(self, self.bus)
+        self.web_file_handler = WebFileHandler(self, self.bus)
+        self.web_dir_file_handler = WebDirFileHandler(self, self.bus)
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
@@ -1245,6 +1326,9 @@ class App(Bottle):
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
         self.download_dump_get_handler.install()
+        self.web_handler.install()
+        self.web_file_handler.install()
+        self.web_dir_file_handler.install()
         if self.have_wsock:
             self.event_handler.install()
         # this has to come last, since it matches everything

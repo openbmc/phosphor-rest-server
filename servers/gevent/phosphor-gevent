@@ -32,7 +32,7 @@ if __name__ == '__main__':
         sys.stderr.write('WSGI application required!')
         sys.exit(1)
 
-    exec 'from obmc.wsgi.apps.%s import App' % sys.argv[1]
+    exec('from obmc.wsgi.apps.%s import App' % sys.argv[1])
 
     default_cert = os.path.join(
         sys.prefix, 'share', os.path.basename(__file__), 'cert.pem')

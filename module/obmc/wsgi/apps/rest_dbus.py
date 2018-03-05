@@ -38,7 +38,11 @@ except ImportError:
 if have_wsock:
     from dbus.mainloop.glib import DBusGMainLoop
     DBusGMainLoop(set_as_default=True)
-    import gobject
+    # TODO: remove support for python 2 once we're at yocto 2.4
+    try:  # python 2
+        import gobject
+    except ImportError:  # python 3
+        from gi.repository import GObject as gobject  
     import gevent
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.DBus.Error.UnknownInterface'
@@ -101,9 +105,15 @@ def convert_type(signature, value):
     # Basic Types
     converted_value = None
     converted_container = None
-    basic_types = {'b': bool, 'y': dbus.Byte, 'n': dbus.Int16, 'i': int,
-                   'x': long, 'q': dbus.UInt16, 'u': dbus.UInt32,
-                   't': dbus.UInt64, 'd': float, 's': str}
+    # TODO: remove support for python 2 once we're at yocto 2.4
+    try:  # python 2
+        basic_types = {'b': bool, 'y': dbus.Byte, 'n': dbus.Int16, 'i': int,
+                       'x': long, 'q': dbus.UInt16, 'u': dbus.UInt32,
+                       't': dbus.UInt64, 'd': float, 's': str}
+    except NameError:  # python 3
+        basic_types = {'b': bool, 'y': dbus.Byte, 'n': dbus.Int16, 'i': int,
+                       'x': int, 'q': dbus.UInt16, 'u': dbus.UInt32,
+                       't': dbus.UInt64, 'd': float, 's': str}
     array_matches = re.match(r'a\((\S+)\)', signature)
     struct_matches = re.match(r'\((\S+)\)', signature)
     dictionary_matches = re.match(r'a{(\S+)}', signature)
@@ -147,7 +157,7 @@ def convert_type(signature, value):
         split_element_types = split_struct_signature(element_types)
         converted_container = dict()
         # Convert each element of dict
-        for key, val in value.iteritems():
+        for key, val in value.items():
             converted_key = convert_type(split_element_types[0], key)
             converted_val = convert_type(split_element_types[1], val)
             converted_container[converted_key] = converted_val
@@ -229,7 +239,7 @@ class RouteHandler(object):
     def try_mapper_call(f, callback=None, **kw):
         try:
             return f(**kw)
-        except dbus.exceptions.DBusException, e:
+        except dbus.exceptions.DBusException as e:
             if e.get_dbus_name() == \
                     'org.freedesktop.DBus.Error.ObjectPathInUse':
                 abort(503, str(e))
@@ -245,7 +255,7 @@ class RouteHandler(object):
     def try_properties_interface(f, *a):
         try:
             return f(*a)
-        except dbus.exceptions.DBusException, e:
+        except dbus.exceptions.DBusException as e:
             if DBUS_UNKNOWN_INTERFACE in e.get_dbus_name():
                 # interface doesn't have any properties
                 return None
@@ -283,8 +293,8 @@ class ListNamesHandler(RouteHandler):
             app, bus, self.verbs, self.rules)
 
     def find(self, path='/'):
-        return self.try_mapper_call(
-            self.mapper.get_subtree, path=path).keys()
+        return list(self.try_mapper_call(
+            self.mapper.get_subtree, path=path).keys())
 
     def setup(self, path='/'):
         request.route_data['map'] = self.find(path)
@@ -330,7 +340,7 @@ class MethodHandler(RouteHandler):
         method_list = []
         busses = self.try_mapper_call(
             self.mapper.get_object, path=path)
-        for items in busses.iteritems():
+        for items in busses.items():
             m = self.find_method_on_bus(path, method, *items)
             if m:
                 method_list.append(m)
@@ -368,7 +378,7 @@ class MethodHandler(RouteHandler):
             # There is only one method
             return request.route_data['map'][0](*args)
 
-        except dbus.exceptions.DBusException, e:
+        except dbus.exceptions.DBusException as e:
             paramlist = []
             if e.get_dbus_name() == DBUS_INVALID_ARGS and retry:
 
@@ -401,7 +411,7 @@ class MethodHandler(RouteHandler):
         if methods is None:
             return None
 
-        method = obmc.utils.misc.find_case_insensitive(method, methods.keys())
+        method = obmc.utils.misc.find_case_insensitive(method, list(methods.keys()))
         if method is not None:
             iface = dbus.Interface(obj, interface)
             return iface.get_dbus_method(method)
@@ -413,7 +423,7 @@ class MethodHandler(RouteHandler):
         parser = IntrospectionNodeParser(
             ElementTree.fromstring(data),
             intf_match=obmc.utils.misc.ListMatch(interfaces))
-        for x, y in parser.get_interfaces().iteritems():
+        for x, y in parser.get_interfaces().items():
             m = self.find_method_in_interface(
                 method, obj, x, y.get('method'))
             if m:
@@ -435,7 +445,7 @@ class PropertyHandler(RouteHandler):
         self.app.instance_handler.setup(path)
         obj = self.app.instance_handler.do_get(path)
         real_name = obmc.utils.misc.find_case_insensitive(
-            prop, obj.keys())
+            prop, list(obj.keys()))
 
         if not real_name:
             if request.method == 'PUT':
@@ -461,9 +471,9 @@ class PropertyHandler(RouteHandler):
             path, prop, request.route_data['map'][path])
         try:
             properties_iface.Set(iface, prop, value)
-        except ValueError, e:
+        except ValueError as e:
             abort(400, str(e))
-        except dbus.exceptions.DBusException, e:
+        except dbus.exceptions.DBusException as e:
             if e.get_dbus_name() == DBUS_INVALID_ARGS and retry:
                 bus_name = properties_iface.bus_name
                 expected_type = get_type_signature_by_introspection(self.bus,
@@ -484,7 +494,7 @@ class PropertyHandler(RouteHandler):
             raise
 
     def get_host_interface(self, path, prop, bus_info):
-        for bus, interfaces in bus_info.iteritems():
+        for bus, interfaces in bus_info.items():
             obj = self.bus.get_object(bus, path, introspect=True)
             properties_iface = dbus.Interface(
                 obj, dbus_interface=dbus.PROPERTIES_IFACE)
@@ -501,7 +511,7 @@ class PropertyHandler(RouteHandler):
             if not properties:
                 continue
             match = obmc.utils.misc.find_case_insensitive(
-                prop, properties.keys())
+                prop, list(properties.keys()))
             if match is None:
                 continue
             prop = match
@@ -526,13 +536,13 @@ class SchemaHandler(RouteHandler):
 
     def do_get(self, path):
         schema = {}
-        for x in request.route_data['map'].iterkeys():
+        for x in request.route_data['map'].keys():
             obj = self.bus.get_object(x, path, introspect=False)
             iface = dbus.Interface(obj, dbus.INTROSPECTABLE_IFACE)
             data = iface.Introspect()
             parser = IntrospectionNodeParser(
                 ElementTree.fromstring(data))
-            for x, y in parser.get_interfaces().iteritems():
+            for x, y in parser.get_interfaces().items():
                 schema[x] = y
 
         return schema
@@ -582,16 +592,16 @@ class InstanceHandler(RouteHandler):
             abort(403, _4034_msg % (
                 'resource', 'created', '%s/attr/%s' % (path, diff[0])))
 
-        for p, v in request.parameter_list.iteritems():
+        for p, v in request.parameter_list.items():
             self.app.property_handler.do_put(
                 path, p, v)
 
     def do_delete(self, path):
-        for bus_info in request.route_data['map'][path].iteritems():
+        for bus_info in request.route_data['map'][path].items():
             if self.bus_missing_delete(path, *bus_info):
                 abort(403, _4034_msg % ('resource', 'removed', path))
 
-        for bus in request.route_data['map'][path].iterkeys():
+        for bus in request.route_data['map'][path].keys():
             self.delete_on_bus(path, bus)
 
     def bus_missing_delete(self, path, bus, interfaces):
@@ -721,7 +731,7 @@ class ImageUploadUtils:
             file_contents = request.body.read()
             request.body.close()
             os.write(handle, file_contents)
-        except (IOError, ValueError), e:
+        except (IOError, ValueError) as e:
             abort(400, str(e))
         except:
             abort(400, "Unexpected Error")
@@ -1106,7 +1116,7 @@ class JsonApiRequestPlugin(object):
 
         try:
             request.parameter_list = request.json.get('data')
-        except ValueError, e:
+        except ValueError as e:
             abort(400, str(e))
         except (AttributeError, KeyError, TypeError):
             abort(400, self.error_str % request.json)
@@ -1171,7 +1181,7 @@ class JsonErrorsPlugin(JSONPlugin):
     def __init__(self, app, **kw):
         super(JsonErrorsPlugin, self).__init__(**kw)
         self.json_opts = {
-            x: y for x, y in kw.iteritems()
+            x: y for x, y in kw.items()
             if x in ['indent', 'sort_keys']}
         app.install_error_callback(self.error_callback)
 
@@ -1374,5 +1384,5 @@ class App(Bottle):
     def strip_extra_slashes():
         path = request.environ['PATH_INFO']
         trailing = ("", "/")[path[-1] == '/']
-        parts = filter(bool, path.split('/'))
+        parts = list(filter(bool, path.split('/')))
         request.environ['PATH_INFO'] = '/' + '/'.join(parts) + trailing

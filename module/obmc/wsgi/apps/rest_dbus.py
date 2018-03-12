@@ -50,6 +50,7 @@ DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
 DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
 DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
+SOFTWARE_PATH = '/xyz/openbmc_project/software'
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
 
@@ -716,11 +717,31 @@ class ImageUploadUtils:
     file_loc = '/tmp/images'
     file_prefix = 'img'
     file_suffix = ''
+    signal = None
 
     @classmethod
     def do_upload(cls, filename=''):
+        def cleanup():
+            os.close(handle)
+            if cls.signal:
+                cls.signal.remove()
+                cls.signal = None
+
+        def signal_callback(path, a, **kw):
+            if "xyz.openbmc_project.Software.Version" in a and \
+               "xyz.openbmc_project.Software.Activation" not in a:
+                paths.append(path)
+        while cls.signal:
+            gevent.sleep(1)
         if not os.path.exists(cls.file_loc):
             abort(500, "Error Directory not found")
+        paths = []
+        bus = dbus.SystemBus()
+        cls.signal = bus.add_signal_receiver(
+            signal_callback,
+            dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
+            signal_name='InterfacesAdded',
+            path=SOFTWARE_PATH)
         if not filename:
             handle, filename = tempfile.mkstemp(cls.file_suffix,
                                                 cls.file_prefix, cls.file_loc)
@@ -731,12 +752,34 @@ class ImageUploadUtils:
             file_contents = request.body.read()
             request.body.close()
             os.write(handle, file_contents)
-        except (IOError, ValueError) as e:
-            abort(400, str(e))
-        except:
-            abort(400, "Unexpected Error")
-        finally:
             os.close(handle)
+        except (IOError, ValueError) as e:
+            cleanup()
+            abort(400, str(e))
+        except Exception:
+            cleanup()
+            abort(400, "Unexpected Error")
+        loop = gobject.MainLoop()
+        gcontext = loop.get_context()
+        count = 0
+        version_id = ''
+        while loop is not None:
+            try:
+                if gcontext.pending():
+                    gcontext.iteration()
+                if not paths:
+                    gevent.sleep(1)
+                else:
+                    version_id = os.path.basename(paths.pop())
+                    break
+                count += 1
+                if count == 10:
+                    break
+            except Exception:
+                break
+        cls.signal.remove()
+        cls.signal = None
+        return version_id
 
 
 class ImagePostHandler(RouteHandler):
@@ -751,7 +794,7 @@ class ImagePostHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_post(self, filename=''):
-        ImageUploadUtils.do_upload()
+        return ImageUploadUtils.do_upload()
 
     def find(self, **kw):
         pass
@@ -873,7 +916,7 @@ class ImagePutHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_put(self, filename=''):
-        ImageUploadUtils.do_upload(filename)
+        return ImageUploadUtils.do_upload(filename)
 
     def find(self, **kw):
         pass

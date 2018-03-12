@@ -50,6 +50,7 @@ DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
 DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
 DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
+SOFTWARE_PATH = '/xyz/openbmc_project/software'
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
 
@@ -751,7 +752,33 @@ class ImagePostHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_post(self, filename=''):
+        paths = []
+        version_id = ''
+        signal_callback = lambda path, *a, **kw: paths.append(path)
+        self.bus.add_signal_receiver(
+            signal_callback,
+            dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
+            signal_name='InterfacesAdded',
+            path=SOFTWARE_PATH)
+        loop = gobject.MainLoop()
+        gcontext = loop.get_context()
+        count = 0
         ImageUploadUtils.do_upload()
+        while loop is not None:
+            try:
+                if gcontext.pending():
+                    gcontext.iteration()
+                if paths:
+                    version_id = os.path.basename(paths.pop())
+                    break
+                else:
+                    gevent.sleep(1)
+                count += 1
+                if count == 10:
+                    break
+            except Exception:
+                break
+        return version_id
 
     def find(self, **kw):
         pass
@@ -873,7 +900,33 @@ class ImagePutHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_put(self, filename=''):
+        paths = []
+        version_id = ''
+        signal_callback = lambda path, *a, **kw: paths.append(path)
+        self.bus.add_signal_receiver(
+            signal_callback,
+            dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
+            signal_name='InterfacesAdded',
+            path=SOFTWARE_PATH)
+        loop = gobject.MainLoop()
+        gcontext = loop.get_context()
+        count = 0
         ImageUploadUtils.do_upload(filename)
+        while loop is not None:
+            try:
+                if gcontext.pending():
+                    gcontext.iteration()
+                if paths:
+                    version_id = os.path.basename(paths.pop())
+                    break
+                else:
+                    gevent.sleep(1)
+                count += 1
+                if count == 10:
+                    break
+            except Exception:
+                break
+        return version_id
 
     def find(self, **kw):
         pass

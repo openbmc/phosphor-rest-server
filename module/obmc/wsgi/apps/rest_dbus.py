@@ -30,6 +30,7 @@ import crypt
 import tempfile
 import re
 import mimetypes
+import thread
 have_wsock = True
 try:
     from geventwebsocket import WebSocketError
@@ -46,6 +47,7 @@ DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
 DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
 DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
+SOFTWARE_PATH = '/xyz/openbmc_project/software'
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
 
@@ -707,6 +709,37 @@ class ImageUploadUtils:
     file_prefix = 'img'
     file_suffix = ''
 
+    def __init__(self):
+        self.thread_id = thread.start_new_thread(self.add_signal, ())
+
+    def add_signal(self):
+        bus = dbus.SystemBus()
+        bus.add_signal_receiver(
+            self.software_interfaces_added_handler,
+            dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
+            signal_name='InterfacesAdded',
+            path=SOFTWARE_PATH)
+        gobject.threads_init()
+        loop = gobject.MainLoop()
+        # gobject's mainloop.run() will block the entire process, so the gevent
+        # scheduler and hence greenlets won't execute. The while-loop below
+        # works around this limitation by using gevent's sleep, instead of
+        # calling loop.run()
+        gcontext = loop.get_context()
+        while loop is not None:
+            try:
+                if gcontext.pending():
+                    gcontext.iteration()
+                else:
+                    # gevent.sleep puts only the current greenlet to sleep,
+                    # not the entire process.
+                    gevent.sleep(5)
+            except Exception:
+                break
+
+    def software_interfaces_added_handler(self, path, iprops, **kw):
+        return
+
     @classmethod
     def do_upload(cls, filename=''):
         if not os.path.exists(cls.file_loc):
@@ -1283,6 +1316,7 @@ class App(Bottle):
         self.install_plugins()
         self.create_handlers()
         self.install_handlers()
+        self.install_signals()
 
     def install_plugins(self):
         # install json api plugins
@@ -1339,6 +1373,9 @@ class App(Bottle):
             self.event_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
+
+    def install_signals(self):
+        self.image_upload_signal_handler = ImageUploadUtils()
 
     def install_error_callback(self, callback):
         self.error_callbacks.insert(0, callback)

@@ -57,8 +57,6 @@ if __name__ == '__main__':
     'ECDH:kDH:kEDH:kRSA:!SSLv3:!SSLv2:!aNULL:!eNULL:!LOW:!MEDIUM:@STRENGTH'
     )
 
-    app = App()
-
     if os.environ.get('LISTEN_PID', None) == str(os.getpid()):
         FIRST_SYSTEMD_SOCKET_FD = 3
         bind = gevent.socket.fromfd(FIRST_SYSTEMD_SOCKET_FD,

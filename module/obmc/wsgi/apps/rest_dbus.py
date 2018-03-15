@@ -718,6 +718,7 @@ class ImageUploadUtils:
     file_loc = '/tmp/images'
     file_prefix = 'img'
     file_suffix = ''
+    version_id = ''
 
     def __init__(self):
         thread.start_new_thread(self.add_signal, ())
@@ -748,7 +749,8 @@ class ImageUploadUtils:
                 break
 
     def software_interfaces_added_handler(self, path, iprops, **kw):
-        return
+        # Version id is the last item in the path
+        self.version_id = os.path.basename(path)
 
     @classmethod
     def do_upload(cls, filename=''):

@@ -816,7 +816,11 @@ class ImagePostHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_post(self, filename=''):
-        return ImageUploadUtils.do_upload()
+        upload_response = ImageUploadUtils.do_upload()
+        if upload_response is None:
+            abort(400, "Version already exists or failed to be extracted")
+        else:
+            return upload_response
 
     def find(self, **kw):
         pass
@@ -938,7 +942,11 @@ class ImagePutHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_put(self, filename=''):
-        return ImageUploadUtils.do_upload(filename)
+        upload_response = ImageUploadUtils.do_upload(filename)
+        if upload_response is None:
+            abort(400, "Version already exists or failed to be extracted")
+        else:
+            return upload_response
 
     def find(self, **kw):
         pass

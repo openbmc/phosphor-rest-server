@@ -778,7 +778,10 @@ class ImagePostHandler(RouteHandler):
                     break
             except Exception:
                 break
-        return version_id
+        if version_id:
+            return version_id
+        else:
+            abort(400, "Version already exists or failed to be extracted")
 
     def find(self, **kw):
         pass
@@ -926,7 +929,10 @@ class ImagePutHandler(RouteHandler):
                     break
             except Exception:
                 break
-        return version_id
+        if version_id:
+            return version_id
+        else:
+            abort(400, "Version already exists or failed to be extracted")
 
     def find(self, **kw):
         pass

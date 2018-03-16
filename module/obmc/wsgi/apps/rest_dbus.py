@@ -775,7 +775,10 @@ class ImageUploadUtils:
             else:
                 break
             wait -= 1
-        return cls.version_id
+        if cls.version_id != None:
+            return cls.version_id
+        else:
+            abort(400, "Version already exists or failed to be extracted")
 
 
 class ImagePostHandler(RouteHandler):

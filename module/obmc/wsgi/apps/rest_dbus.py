@@ -31,6 +31,7 @@ import tempfile
 import re
 import mimetypes
 import thread
+import time
 have_wsock = True
 try:
     from geventwebsocket import WebSocketError
@@ -708,7 +709,7 @@ class ImageUploadUtils:
     file_loc = '/tmp/images'
     file_prefix = 'img'
     file_suffix = ''
-    version_id = ''
+    version_id = None
 
     def __init__(self):
         thread.start_new_thread(self.add_signal, ())
@@ -744,7 +745,7 @@ class ImageUploadUtils:
         if pos == -1:
             return
         pos += 1
-        self.version_id = path[pos:]
+        ImageUploadUtils.version_id = path[pos:]
 
     @classmethod
     def do_upload(cls, filename=''):
@@ -757,6 +758,7 @@ class ImageUploadUtils:
             filename = os.path.join(cls.file_loc, filename)
             handle = os.open(filename, os.O_WRONLY | os.O_CREAT)
         try:
+            cls.version_id = None
             file_contents = request.body.read()
             request.body.close()
             os.write(handle, file_contents)
@@ -766,6 +768,14 @@ class ImageUploadUtils:
             abort(400, "Unexpected Error")
         finally:
             os.close(handle)
+        wait = 5
+        while wait > 0:
+            if cls.version_id == None:
+                time.sleep(1)
+            else:
+                break
+            wait -= 1
+        return cls.version_id
 
 
 class ImagePostHandler(RouteHandler):
@@ -780,7 +790,7 @@ class ImagePostHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_post(self, filename=''):
-        ImageUploadUtils.do_upload()
+        return ImageUploadUtils.do_upload()
 
     def find(self, **kw):
         pass
@@ -902,7 +912,7 @@ class ImagePutHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_put(self, filename=''):
-        ImageUploadUtils.do_upload(filename)
+        return ImageUploadUtils.do_upload(filename)
 
     def find(self, **kw):
         pass

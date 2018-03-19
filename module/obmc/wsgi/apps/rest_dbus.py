@@ -718,7 +718,7 @@ class ImageUploadUtils:
     file_loc = '/tmp/images'
     file_prefix = 'img'
     file_suffix = ''
-    version_id = ''
+    version_id = None
 
     def __init__(self):
         thread.start_new_thread(self.add_signal, ())
@@ -750,7 +750,7 @@ class ImageUploadUtils:
 
     def software_interfaces_added_handler(self, path, iprops, **kw):
         # Version id is the last item in the path
-        self.version_id = os.path.basename(path)
+        ImageUploadUtils.version_id = os.path.basename(path)
 
     @classmethod
     def do_upload(cls, filename=''):
@@ -763,6 +763,7 @@ class ImageUploadUtils:
             filename = os.path.join(cls.file_loc, filename)
             handle = os.open(filename, os.O_WRONLY | os.O_CREAT)
         try:
+            ImageUploadUtils.version_id = None
             file_contents = request.body.read()
             request.body.close()
             os.write(handle, file_contents)
@@ -772,6 +773,21 @@ class ImageUploadUtils:
             abort(400, "Unexpected Error")
         finally:
             os.close(handle)
+
+        def do_check_version():
+        ''' Return the version id (e.g. ab1412ec) of the uploaded file '''
+            gobject.threads_init()
+            loop = gobject.MainLoop()
+            while loop is not None:
+                if do_check_version.count == 10:
+                    return ImageUploadUtils.version_id
+                if ImageUploadUtils.version_id is None:
+                    gevent.sleep(1)
+                    do_check_version.count += 1
+                else:
+                    return ImageUploadUtils.version_id
+        do_check_version.count = 0
+        return do_check_version()
 
 
 class ImagePostHandler(RouteHandler):
@@ -786,7 +802,7 @@ class ImagePostHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_post(self, filename=''):
-        ImageUploadUtils.do_upload()
+        return ImageUploadUtils.do_upload()
 
     def find(self, **kw):
         pass
@@ -908,7 +924,7 @@ class ImagePutHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_put(self, filename=''):
-        ImageUploadUtils.do_upload(filename)
+        return ImageUploadUtils.do_upload(filename)
 
     def find(self, **kw):
         pass

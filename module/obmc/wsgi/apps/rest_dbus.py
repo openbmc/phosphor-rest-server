@@ -30,7 +30,9 @@ import crypt
 import tempfile
 import re
 import mimetypes
+from Queue import Queue
 import thread
+import threading
 have_wsock = True
 try:
     from geventwebsocket import WebSocketError
@@ -719,6 +721,7 @@ class ImageUploadUtils:
     file_prefix = 'img'
     file_suffix = ''
     version_id = None
+    version_id_q = Queue()
 
     def __init__(self):
         thread.start_new_thread(self.add_signal, ())
@@ -750,7 +753,20 @@ class ImageUploadUtils:
 
     def software_interfaces_added_handler(self, path, iprops, **kw):
         # Version id is the last item in the path
-        ImageUploadUtils.version_id = os.path.basename(path)
+        version_id = os.path.basename(path)
+
+        def do_clear_version_id_q():
+            if not ImageUploadUtils.version_id_q.empty():
+                    ImageUploadUtils.version_id_q.get()
+        # The upload triggers multiple interfaces added for the same version,
+        # just add the first instance to the queue
+        if ImageUploadUtils.version_id != version_id:
+            ImageUploadUtils.version_id = version_id
+            ImageUploadUtils.version_id_q.put(version_id)
+            # For each version added to the queue, schedule a cleanup timer
+            # that will pop it if no caller does, for the cases where a version
+            # was added through other methods other than REST such as TFTP
+            threading.Timer(10, do_clear_version_id_q).start()
 
     @classmethod
     def do_upload(cls, filename=''):
@@ -763,7 +779,6 @@ class ImageUploadUtils:
             filename = os.path.join(cls.file_loc, filename)
             handle = os.open(filename, os.O_WRONLY | os.O_CREAT)
         try:
-            ImageUploadUtils.version_id = None
             file_contents = request.body.read()
             request.body.close()
             os.write(handle, file_contents)
@@ -779,12 +794,12 @@ class ImageUploadUtils:
             loop = gobject.MainLoop()
             while loop is not None:
                 if do_check_version.count == 10:
-                    return ImageUploadUtils.version_id
-                if ImageUploadUtils.version_id is None:
+                    return None
+                if ImageUploadUtils.version_id_q.empty():
                     gevent.sleep(1)
                     do_check_version.count += 1
                 else:
-                    return ImageUploadUtils.version_id
+                    return ImageUploadUtils.version_id_q.get()
         do_check_version.count = 0
         return do_check_version()
 

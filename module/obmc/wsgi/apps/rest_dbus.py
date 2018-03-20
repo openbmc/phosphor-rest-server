@@ -624,8 +624,13 @@ class SessionHandler(MethodHandler):
     no_user_str = "No user logged in"
     bad_json_str = "Expecting request format { 'data': " \
         "[<username>, <password>] }, got '%s'"
+    bmc_not_ready_str = "BMC is not ready (booting)"
     _require_auth = None
     MAX_SESSIONS = 16
+    BMCSTATE_IFACE = 'xyz.openbmc_project.State.BMC'
+    BMCSTATE_PATH = '/xyz/openbmc_project/state/bmc0'
+    BMCSTATE_PROPERTY = 'CurrentBMCState'
+    BMCSTATE_READY = 'xyz.openbmc_project.State.BMC.BMCState.Ready'
 
     def __init__(self, app, bus):
         super(SessionHandler, self).__init__(
@@ -694,6 +699,9 @@ class SessionHandler(MethodHandler):
         if not self.authenticate(*request.parameter_list):
             abort(401, self.bad_passwd_str)
 
+        if not self.is_bmc_ready():
+            abort(503, self.bmc_not_ready_str)
+
         user = request.parameter_list[0]
         session = self.new_session()
         session['user'] = user
@@ -702,6 +710,19 @@ class SessionHandler(MethodHandler):
             secure=True,
             httponly=True)
         return self.login_str % (user, 'in')
+
+    def is_bmc_ready(self):
+        try:
+            obj = self.bus.get_object(self.BMCSTATE_IFACE, self.BMCSTATE_PATH)
+            iface = dbus.Interface(obj, dbus.PROPERTIES_IFACE)
+            state = iface.Get(self.BMCSTATE_IFACE, self.BMCSTATE_PROPERTY)
+            if state == self.BMCSTATE_READY:
+                return True
+
+        except dbus.exceptions.DBusException:
+            pass
+
+        return False
 
     def find(self, **kw):
         pass

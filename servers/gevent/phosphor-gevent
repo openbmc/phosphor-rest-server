@@ -27,10 +27,22 @@ try:
 except ImportError:
     have_wsock = False
 
+# Parameters
+# <wsgi application>  REQUIRED  Application to import and run (i.e. rest_dbus)
+# <--no-ssl>          OPTIONAL  Don't use SSL
+#
+# NOTE: If not activated via a systemd socket then this server will bind
+#       by default to all address's at port 443 or 80(--no-ssl)
 if __name__ == '__main__':
+
     if len(sys.argv) < 2:
         sys.stderr.write('WSGI application required!')
         sys.exit(1)
+
+    if (len(sys.argv) > 2) and (sys.argv[2] == "--no-ssl"):
+        use_ssl = False
+    else:
+        use_ssl = True
 
     exec('from obmc.wsgi.apps.%s import App' % sys.argv[1])
 
@@ -42,20 +54,24 @@ if __name__ == '__main__':
         kw['have_wsock'] = True
     app = App(**kw)
 
-    # ECDH - Allow Elliptic Curve Diffie Hellman
-    # kDH - Allow Key Exchange algorithm as Diffie Hellman
-    # kEDH - Allow Key Exchange algorithm as Ephemeral Diffie Hellman
-    # kRSA - Allow Key Exchange algorithm as RSA
-    # !SSLv3 - Disallows any ciphers specific to SSLv3
-    # !SSLv2 - Disallows any ciphers specific to SSLv2 protocol
-    # !aNULL - Disallows anonymous authentication or no authentication
-    # !eNULL - Disallows connection with NULL encryption
-    # !LOW -   Disallows any low strength ciphers
-    # !MEDIUM- Disallows medium strength ciphers
+    if use_ssl:
+        # ECDH - Allow Elliptic Curve Diffie Hellman
+        # kDH - Allow Key Exchange algorithm as Diffie Hellman
+        # kEDH - Allow Key Exchange algorithm as Ephemeral Diffie Hellman
+        # kRSA - Allow Key Exchange algorithm as RSA
+        # !SSLv3 - Disallows any ciphers specific to SSLv3
+        # !SSLv2 - Disallows any ciphers specific to SSLv2 protocol
+        # !aNULL - Disallows anonymous authentication or no authentication
+        # !eNULL - Disallows connection with NULL encryption
+        # !LOW -   Disallows any low strength ciphers
+        # !MEDIUM- Disallows medium strength ciphers
 
-    ssl_ciphers = (
-    'ECDH:kDH:kEDH:kRSA:!SSLv3:!SSLv2:!aNULL:!eNULL:!LOW:!MEDIUM:@STRENGTH'
-    )
+        kw['ciphers'] = (
+        'ECDH:kDH:kEDH:kRSA:!SSLv3:!SSLv2:!aNULL:!eNULL:!LOW:!MEDIUM:@STRENGTH'
+        )
+
+        kw['keyfile'] = default_cert
+        kw['certfile'] = default_cert
 
     if os.environ.get('LISTEN_PID', None) == str(os.getpid()):
         FIRST_SYSTEMD_SOCKET_FD = 3
@@ -63,12 +79,15 @@ if __name__ == '__main__':
                                     gevent.socket.AF_INET,
                                     gevent.socket.SOCK_STREAM)
     else:
-        bind = ('', 443)
+        if use_ssl:
+            bind = ('', 443)
+        else:
+            bind = ('', 80)
 
     kw = {}
     if have_wsock:
         kw['handler_class'] = WebSocketHandler
-    server = WSGIServer(
-        bind, app, keyfile=default_cert, certfile=default_cert,
-        ciphers=ssl_ciphers, **kw)
+
+    server = WSGIServer( bind, app, **kw )
+
     server.serve_forever()

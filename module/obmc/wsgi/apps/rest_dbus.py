@@ -422,7 +422,7 @@ class MethodHandler(RouteHandler):
         data = iface.Introspect()
         parser = IntrospectionNodeParser(
             ElementTree.fromstring(data),
-            intf_match=obmc.utils.misc.ListMatch(interfaces))
+            intf_match=lambda x: x in interfaces)
         for x, y in parser.get_interfaces().items():
             m = self.find_method_in_interface(
                 method, obj, x, y.get('method'))

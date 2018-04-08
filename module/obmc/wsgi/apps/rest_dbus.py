@@ -338,9 +338,9 @@ class MethodHandler(RouteHandler):
 
     def find(self, path, method):
         method_list = []
-        busses = self.try_mapper_call(
+        buses = self.try_mapper_call(
             self.mapper.get_object, path=path)
-        for items in busses.items():
+        for items in buses.items():
             m = self.find_method_on_bus(path, method, *items)
             if m:
                 method_list.append(m)

@@ -788,7 +788,10 @@ class ImageUploadUtils:
                 break
         cls.signal.remove()
         cls.signal = None
-        return version_id
+        if version_id:
+            return version_id
+        else:
+            abort(400, "Version already exists or failed to be extracted")
 
 
 class ImagePostHandler(RouteHandler):

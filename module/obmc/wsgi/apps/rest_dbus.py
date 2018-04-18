@@ -1333,6 +1333,37 @@ class ContentCheckerPlugin(object):
 
         return self.Checker(content_type, callback)
 
+class CheckURLPlugin(object):
+    ''' Ensures that anything read and written using only urls listed in
+        the url_config.json config file would allowed. '''
+    name = 'url_checker'
+    api = 2
+
+    def __init__(self):
+        config_path = '/usr/share/rest-dbus/url_config.json'
+        url_config = {}
+        self.urls = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path) as data_file:
+                    url_config = json.load(data_file)
+                    self.urls = set(url_config['urls'])
+            except ValueError as e:
+                    abort(404, str(e))
+        else:
+            abort(404, "Config file path not found for Whitelisted URLs")
+
+    def apply(self, callback, route):
+
+        def wrap(*a, **kw):
+                requestedUrlBase = "/".join(request.path.split("/")[0:3])
+                if request.path in self.urls:
+                    return callback(*a, **kw)
+                elif requestedUrlBase in self.urls:
+                    return callback(*a, **kw)
+                else:
+                    abort(404,"Trying to access Blocked URL")
+        return wrap
 
 class App(Bottle):
     def __init__(self, **kw):
@@ -1360,6 +1391,7 @@ class App(Bottle):
         self.install(JsonApiResponsePlugin(self))
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())
+        self.install(CheckURLPlugin())
 
     def install_hooks(self):
         self.error_handler_type = type(self.default_error_handler)

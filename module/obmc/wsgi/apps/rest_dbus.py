@@ -1333,6 +1333,30 @@ class ContentCheckerPlugin(object):
 
         return self.Checker(content_type, callback)
 
+class CheckURLPlugin(object):
+    ''' Ensures that anything read and written using the urls listed in the
+        url_config.json config file would not be allowed. '''
+    name = 'url_checker'
+    api = 2
+
+    def apply(self, callback, route):
+        config_path = '/usr/share/witherspoon-rest-url-config/url_config.json'
+        url_config = []
+        if os.path.exists(config_path):
+            try:
+                with open(config_path) as data_file:
+                    url_config = json.load(data_file)
+            except ValueError as e:
+                    abort(404, str(e))
+        else:
+            url_config = {'urls': []}
+        self.callback = callback
+        def wrap(*a, **kw):
+                if any(url in request.url for url in url_config['urls']):
+                    abort(404,'Trying to access Blocked URL ')
+                else:
+                    return callback(*a, **kw)
+        return wrap
 
 class App(Bottle):
     def __init__(self, **kw):
@@ -1360,6 +1384,7 @@ class App(Bottle):
         self.install(JsonApiResponsePlugin(self))
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())
+        self.install(CheckURLPlugin())
 
     def install_hooks(self):
         self.error_handler_type = type(self.default_error_handler)

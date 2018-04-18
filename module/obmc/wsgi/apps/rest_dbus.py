@@ -30,6 +30,7 @@ import crypt
 import tempfile
 import re
 import mimetypes
+import fnmatch
 have_wsock = True
 try:
     from geventwebsocket import WebSocketError
@@ -1333,6 +1334,34 @@ class ContentCheckerPlugin(object):
 
         return self.Checker(content_type, callback)
 
+class CheckURLPlugin(object):
+    ''' Ensures that anything read and written using only urls listed in
+        the url_config.json config file would allowed. '''
+    name = 'url_checker'
+    api = 2
+
+    def __init__(self):
+        config_path = '/usr/share/rest-dbus/url_config.json'
+        url_config = {}
+        self.urls = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path) as data_file:
+                    url_config = json.load(data_file)
+                    self.urls = url_config['urls']
+            except ValueError as e:
+                    abort(404, str(e))
+        else:
+            abort(404, "Config file path not found for Whitelisted URLs")
+
+    def apply(self, callback, route):
+
+        def wrap(*a, **kw):
+                for url in self.urls:
+                    if fnmatch.fnmatch(request.path,url):
+                        return callback(*a, **kw)
+                abort(404,"Trying to access Blocked URL")
+        return wrap
 
 class App(Bottle):
     def __init__(self, **kw):
@@ -1360,6 +1389,7 @@ class App(Bottle):
         self.install(JsonApiResponsePlugin(self))
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())
+        self.install(CheckURLPlugin())
 
     def install_hooks(self):
         self.error_handler_type = type(self.default_error_handler)

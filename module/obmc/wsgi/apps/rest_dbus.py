@@ -1333,6 +1333,36 @@ class ContentCheckerPlugin(object):
 
         return self.Checker(content_type, callback)
 
+class CheckURLPlugin(object):
+    ''' Ensures that anything read and written using the old /org/openbmc route
+        would not be allowed. '''
+    name = 'url_checker'
+    api = 2
+
+    class Checker:
+        def __init__(self, callback):
+            self.deprecated_urls_loc = \
+                                  '/usr/share/phosphor-rest/deprecated_url.json'
+            self.data_item = []
+            if os.path.exists(self.deprecated_urls_loc):
+                with open(self.deprecated_urls_loc) as data_file:
+                    self.data_item = json.load(data_file)
+            else:
+                print("Path not found %s" %(self.deprecated_urls_loc))
+                self.data_item = {u'urls': []}
+            self.callback = callback
+            self.error_str = "org.freedesktop.DBus.Error.FileNotFound: path " \
+                             + "or object not found: '%s'"
+
+        def __call__(self, *a, **kw):
+            for i in range(len(self.data_item['urls'])):
+                if self.data_item['urls'][i] in request.url:
+                    abort(404, self.error_str % (request.url))
+            return self.callback(*a, **kw)
+
+    def apply(self, callback, route):
+        return self.Checker(callback)
+
 
 class App(Bottle):
     def __init__(self, **kw):
@@ -1360,6 +1390,7 @@ class App(Bottle):
         self.install(JsonApiResponsePlugin(self))
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())
+        self.install(CheckURLPlugin())
 
     def install_hooks(self):
         self.error_handler_type = type(self.default_error_handler)

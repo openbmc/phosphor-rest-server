@@ -44,6 +44,8 @@ if have_wsock:
     except ImportError:  # python 3
         from gi.repository import GObject as gobject
     import gevent
+    from gevent import socket
+    from gevent import Greenlet
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.DBus.Error.UnknownInterface'
 DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
@@ -916,6 +918,73 @@ class EventHandler(RouteHandler):
         notifier = EventNotifier(wsock, filters)
 
 
+class HostConsoleHandler(RouteHandler):
+    ''' Handles the /console route, for clients to be able
+        read/write the host serial console. The way this is
+        done is by exposing a websocket that's mirrored to an
+        abstract UNIX domain socket, which is the source for
+        the console data. '''
+
+    verbs = ['GET']
+    # Naming the route console0, because the numbering will help
+    # on multi-bmc/multi-host systems.
+    rules = ['/console0']
+
+    def __init__(self, app, bus):
+        super(HostConsoleHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+    def read_wsock(self, wsock, sock):
+        while True:
+            try:
+                incoming = wsock.receive()
+                if incoming:
+                    # Read websocket, write to UNIX socket
+                    sock.send(incoming)
+            except Exception as e:
+                sock.close()
+                return
+
+    def read_sock(self, sock, wsock):
+        max_sock_read_len = 4096
+        while True:
+            try:
+                outgoing = sock.recv(max_sock_read_len)
+                if outgoing:
+                    # Read UNIX socket, write to websocket
+                    wsock.send(outgoing)
+            except Exception as e:
+                wsock.close()
+                return
+
+    def do_get(self):
+        wsock = request.environ.get('wsgi.websocket')
+        if not wsock:
+            abort(400, 'Expected WebSocket based request.')
+
+        # A UNIX domain socket structure defines a 108-byte pathname. The
+        # server in this case, obmc-console-server, expects a 108-byte path.
+        socket_name = "\0obmc-console"
+        trailing_bytes = "\0" * (108 - len(socket_name))
+        socket_path = socket_name + trailing_bytes
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+        try:
+            sock.connect(socket_path)
+        except Exception as e:
+            abort(500, str(e))
+
+        wsock_reader = Greenlet.spawn(self.read_wsock, wsock, sock)
+        sock_reader = Greenlet.spawn(self.read_sock, sock, wsock)
+        gevent.joinall([wsock_reader, sock_reader])
+
+
 class ImagePutHandler(RouteHandler):
     ''' Handles the /upload/image/<filename> route. '''
 
@@ -1386,6 +1455,7 @@ class App(Bottle):
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
+            self.host_console_handler = HostConsoleHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1402,6 +1472,7 @@ class App(Bottle):
         self.download_dump_get_handler.install()
         if self.have_wsock:
             self.event_handler.install()
+            self.host_console_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

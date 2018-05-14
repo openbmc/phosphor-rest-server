@@ -600,15 +600,18 @@ class InstanceHandler(RouteHandler):
                 path, p, v)
 
     def do_delete(self, path):
-        for bus_info in request.route_data['map'][path].items():
-            if self.bus_missing_delete(path, *bus_info):
-                abort(403, _4034_msg % ('resource', 'removed', path))
-
+        deleted = False
         for bus in request.route_data['map'][path].keys():
-            self.delete_on_bus(path, bus)
+            if self.bus_has_delete(request.route_data['map'][path][bus]):
+                self.delete_on_bus(path, bus)
+                deleted = True
 
-    def bus_missing_delete(self, path, bus, interfaces):
-        return DELETE_IFACE not in interfaces
+        #It's OK if some objects didn't have a Delete, but not all
+        if not deleted:
+            abort(403, _4034_msg % ('resource', 'removed', path))
+
+    def bus_has_delete(self, interfaces):
+        return DELETE_IFACE in interfaces
 
     def delete_on_bus(self, path, bus):
         obj = self.bus.get_object(bus, path, introspect=False)

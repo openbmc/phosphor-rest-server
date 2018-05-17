@@ -685,10 +685,6 @@ class SessionHandler(MethodHandler):
         return self.no_user_str
 
     def do_login(self, **kw):
-        session = self.get_session_from_cookie()
-        if session is not None:
-            return self.login_str % (session['user'], 'in')
-
         if len(request.parameter_list) != 2:
             abort(400, self.bad_json_str % (request.json))
 

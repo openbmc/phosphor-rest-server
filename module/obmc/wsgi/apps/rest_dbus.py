@@ -54,6 +54,7 @@ DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
 DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
 SOFTWARE_PATH = '/xyz/openbmc_project/software'
+WEBSOCKET_TIMEOUT = 45
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
 
@@ -166,6 +167,22 @@ def convert_type(signature, value):
             converted_val = convert_type(split_element_types[1], val)
             converted_container[converted_key] = converted_val
         return converted_container
+
+
+def send_ws_ping(wsock, timeout) :
+    # Most webservers close websockets after 60 seconds of
+    # inactivity. Make sure to send a ping before that.
+    payload = "ping"
+    # the ping payload can be anything, the receiver has to just
+    # return the same back.
+    while True:
+        gevent.sleep(timeout)
+        try:
+            if wsock:
+                wsock.send_frame(payload, wsock.OPCODE_PING)
+        except Exception as e:
+            wsock.close()
+            return
 
 
 class UserInGroup:
@@ -943,10 +960,10 @@ class EventHandler(RouteHandler):
         wsock = request.environ.get('wsgi.websocket')
         if not wsock:
             abort(400, 'Expected WebSocket request.')
+        ping_sender = Greenlet.spawn(send_ws_ping, wsock, WEBSOCKET_TIMEOUT)
         filters = wsock.receive()
         filters = json.loads(filters)
         notifier = EventNotifier(wsock, filters)
-
 
 class HostConsoleHandler(RouteHandler):
     ''' Handles the /console route, for clients to be able
@@ -993,17 +1010,6 @@ class HostConsoleHandler(RouteHandler):
                 wsock.close()
                 return
 
-    def send_ping(self, wsock) :
-        # Most webservers close websockets after 60 seconds of
-        # inactivity. Make sure to send a ping before that.
-        timeout = 45
-        payload = "ping"
-        # the ping payload can be anything, the receiver has to just
-        # return the same back.
-        while True:
-            gevent.sleep(timeout)
-            wsock.send_frame(payload, wsock.OPCODE_PING)
-
     def do_get(self):
         wsock = request.environ.get('wsgi.websocket')
         if not wsock:
@@ -1023,7 +1029,7 @@ class HostConsoleHandler(RouteHandler):
 
         wsock_reader = Greenlet.spawn(self.read_wsock, wsock, sock)
         sock_reader = Greenlet.spawn(self.read_sock, sock, wsock)
-        ping_sender = Greenlet.spawn(self.send_ping, wsock)
+        ping_sender = Greenlet.spawn(send_ws_ping, wsock, WEBSOCKET_TIMEOUT)
         gevent.joinall([wsock_reader, sock_reader, ping_sender])
 
 

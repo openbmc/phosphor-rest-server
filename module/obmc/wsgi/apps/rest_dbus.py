@@ -909,14 +909,25 @@ class EventHandler(RouteHandler):
     def setup(self, **kw):
         pass
 
+    def wakeup_ping(self, wsock) :
+        # websocket has a maximum allowed inactivity time of 60 seconds. 
+        # Need to send a ping before that, which avoids closing of websocket.
+        timeout = 45
+        payload = "ping"
+        # the ping payload can be anything, the receiver has to just
+        # return the same back.
+        while True:
+            gevent.sleep(timeout)
+            wsock.send_frame(payload, wsock.OPCODE_PING)
+
     def do_get(self):
         wsock = request.environ.get('wsgi.websocket')
         if not wsock:
             abort(400, 'Expected WebSocket request.')
+        ping_sender = Greenlet.spawn(self.wakeup_ping, wsock)
         filters = wsock.receive()
         filters = json.loads(filters)
         notifier = EventNotifier(wsock, filters)
-
 
 class HostConsoleHandler(RouteHandler):
     ''' Handles the /console route, for clients to be able

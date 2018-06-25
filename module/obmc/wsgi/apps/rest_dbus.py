@@ -1381,6 +1381,46 @@ class JsonApiResponsePlugin(object):
     def __init__(self, app):
         app.install_error_callback(self.error_callback)
 
+    @staticmethod
+    def dbus_boolean_to_bool(data):
+        ''' Convert all dbus.Booleans to true/false instead of 1/0 as
+            the JSON encoder thinks they're ints.  Note that unlike
+            dicts and lists, tuples (from a dbus.Struct) are immutable
+            so they need special handling. '''
+
+        def walkdict(data):
+            for key, value in data.items():
+                if isinstance(value, dbus.Boolean):
+                    data[key] = bool(value)
+                elif isinstance(value, tuple):
+                    data[key] = walktuple(value)
+                else:
+                    JsonApiResponsePlugin.dbus_boolean_to_bool(value)
+
+        def walklist(data):
+            for i in range(len(data)):
+                if isinstance(data[i], dbus.Boolean):
+                    data[i] = bool(data[i])
+                elif isinstance(data[i], tuple):
+                    data[i] = walktuple(data[i])
+                else:
+                    JsonApiResponsePlugin.dbus_boolean_to_bool(data[i])
+
+        def walktuple(data):
+            new = []
+            for item in data:
+                if isinstance(item, dbus.Boolean):
+                    item = bool(item)
+                else:
+                    JsonApiResponsePlugin.dbus_boolean_to_bool(item)
+                new.append(item)
+            return tuple(new)
+
+        if isinstance(data, dict):
+            walkdict(data)
+        elif isinstance(data, list):
+            walklist(data)
+
     def apply(self, callback, route):
         skip = getattr(
             route.get_undecorated_callback(), 'suppress_json_resp', None)
@@ -1389,6 +1429,7 @@ class JsonApiResponsePlugin(object):
 
         def wrap(*a, **kw):
             data = callback(*a, **kw)
+            JsonApiResponsePlugin.dbus_boolean_to_bool(data)
             if self.has_body():
                 resp = {'data': data}
                 resp['status'] = 'ok'

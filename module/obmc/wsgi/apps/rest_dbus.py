@@ -507,11 +507,15 @@ class PropertyHandler(RouteHandler):
                 converted_value = None
                 try:
                     converted_value = convert_type(expected_type, value)
-                    self.do_put(path, prop, converted_value, False)
-                    return
                 except Exception as ex:
                     abort(403, "Failed to convert %s to type %s" %
                           (value, expected_type))
+                try:
+                    self.do_put(path, prop, converted_value, False)
+                    return
+                except Exception as ex:
+                    abort(403, str(ex))
+
                 abort(403, str(e))
             raise
 

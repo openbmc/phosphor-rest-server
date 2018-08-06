@@ -1057,6 +1057,71 @@ class ImagePutHandler(RouteHandler):
     def setup(self, **kw):
         pass
 
+class LdapConfigUploadUtils:
+    ''' Provides common utils for ldap config file upload. '''
+
+    file_loc = '/etc/ldap/'
+    file_prefix = 'ldap'
+    file_suffix = '.conf'
+    signal = None
+
+    @classmethod
+    def do_upload(cls, filename=''):
+        def cleanup():
+            os.close(handle)
+            if cls.signal:
+                cls.signal.remove()
+                cls.signal = None
+
+        while cls.signal:
+            # Serialize uploads by waiting for the signal to be cleared.
+            # This makes it easier to ensure that the version information
+            # is the right one instead of the data from another upload request.
+            gevent.sleep(1)
+        if not os.path.exists(cls.file_loc):
+            os.makedirs(cls.file_loc)
+        paths = []
+
+        if not filename:
+            handle, filename = tempfile.mkstemp(cls.file_suffix,
+                                                cls.file_prefix, cls.file_loc)
+        else:
+            filename = os.path.join(cls.file_loc, filename)
+            handle = os.open(filename, os.O_WRONLY | os.O_CREAT)
+        try:
+            file_contents = request.body.read()
+            request.body.close()
+            os.write(handle, file_contents)
+            # Close file after writing, the image manager process watches for
+            # the close event to know the upload is complete.
+            os.close(handle)
+        except (IOError, ValueError) as e:
+            cleanup()
+            abort(400, str(e))
+        except Exception:
+            cleanup()
+            abort(400, "Unexpected Error")
+        return
+
+class LdapConfigPutHandler(RouteHandler):
+    ''' Handles the /upload/ldapconf/<filename> route. '''
+
+    verbs = ['PUT']
+    rules = ['/upload/ldapconf/<filename>']
+    content_type = 'application/octet-stream'
+
+    def __init__(self, app, bus):
+        super(LdapConfigPutHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_put(self, filename=''):
+        return LdapConfigUploadUtils.do_upload(filename)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
 
 class DownloadDumpHandler(RouteHandler):
     ''' Handles the /download/dump route. '''
@@ -1505,6 +1570,7 @@ class App(Bottle):
         self.schema_handler = SchemaHandler(self, self.bus)
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
+        self.ldapconf_upload_put_handler = LdapConfigPutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
@@ -1522,6 +1588,7 @@ class App(Bottle):
         self.schema_handler.install()
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
+        self.ldapconf_upload_put_handler.install()
         self.download_dump_get_handler.install()
         if self.have_wsock:
             self.event_handler.install()

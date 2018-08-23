@@ -50,6 +50,7 @@ if have_wsock:
 
 DBUS_UNKNOWN_INTERFACE = 'org.freedesktop.DBus.Error.UnknownInterface'
 DBUS_UNKNOWN_METHOD = 'org.freedesktop.DBus.Error.UnknownMethod'
+DBUS_PROPERTY_READONLY = 'org.freedesktop.DBus.Error.PropertyReadOnly'
 DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
 DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
@@ -495,6 +496,8 @@ class PropertyHandler(RouteHandler):
         except ValueError as e:
             abort(400, str(e))
         except dbus.exceptions.DBusException as e:
+            if e.get_dbus_name() == DBUS_PROPERTY_READONLY:
+                abort(403, str(e))
             if e.get_dbus_name() == DBUS_INVALID_ARGS and retry:
                 bus_name = properties_iface.bus_name
                 expected_type = get_type_signature_by_introspection(self.bus,

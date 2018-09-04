@@ -290,6 +290,7 @@ class RouteHandler(object):
 class DirectoryHandler(RouteHandler):
     verbs = 'GET'
     rules = '<path:path>/'
+    suppress_logging = True
 
     def __init__(self, app, bus):
         super(DirectoryHandler, self).__init__(
@@ -309,6 +310,7 @@ class DirectoryHandler(RouteHandler):
 class ListNamesHandler(RouteHandler):
     verbs = 'GET'
     rules = ['/list', '<path:path>/list']
+    suppress_logging = True
 
     def __init__(self, app, bus):
         super(ListNamesHandler, self).__init__(
@@ -328,6 +330,7 @@ class ListNamesHandler(RouteHandler):
 class ListHandler(RouteHandler):
     verbs = 'GET'
     rules = ['/enumerate', '<path:path>/enumerate']
+    suppress_logging = True
 
     def __init__(self, app, bus):
         super(ListHandler, self).__init__(
@@ -549,6 +552,7 @@ class PropertyHandler(RouteHandler):
 class SchemaHandler(RouteHandler):
     verbs = ['GET']
     rules = '<path:path>/schema'
+    suppress_logging = True
 
     def __init__(self, app, bus):
         super(SchemaHandler, self).__init__(
@@ -662,6 +666,7 @@ class SessionHandler(MethodHandler):
     BMCSTATE_PATH = '/xyz/openbmc_project/state/bmc0'
     BMCSTATE_PROPERTY = 'CurrentBMCState'
     BMCSTATE_READY = 'xyz.openbmc_project.State.BMC.BMCState.Ready'
+    suppress_json_logging = True
 
     def __init__(self, app, bus):
         super(SessionHandler, self).__init__(
@@ -952,6 +957,7 @@ class EventHandler(RouteHandler):
 
     verbs = ['GET']
     rules = ['/subscribe']
+    suppress_logging = True
 
     def __init__(self, app, bus):
         super(EventHandler, self).__init__(
@@ -983,6 +989,7 @@ class HostConsoleHandler(RouteHandler):
     # Naming the route console0, because the numbering will help
     # on multi-bmc/multi-host systems.
     rules = ['/console0']
+    suppress_logging = True
 
     def __init__(self, app, bus):
         super(HostConsoleHandler, self).__init__(
@@ -1069,6 +1076,7 @@ class DownloadDumpHandler(RouteHandler):
     content_type = 'application/octet-stream'
     dump_loc = '/var/lib/phosphor-debug-collector/dumps'
     suppress_json_resp = True
+    suppress_logging = True
 
     def __init__(self, app, bus):
         super(DownloadDumpHandler, self).__init__(
@@ -1122,6 +1130,7 @@ class WebHandler(RouteHandler):
 
     _require_auth = None
     suppress_json_resp = True
+    suppress_logging = True
 
     def __init__(self, app, bus):
         super(WebHandler, self).__init__(
@@ -1499,6 +1508,52 @@ class ContentCheckerPlugin(object):
         return self.Checker(content_type, callback)
 
 
+class LoggingPlugin(object):
+    ''' Wraps a request in order to emit a log after the request is handled. '''
+    name = 'loggingp'
+    api = 2
+
+    class Logger:
+        def __init__(self, suppress_json_logging, callback, app):
+            self.suppress_json_logging = suppress_json_logging
+            self.callback = callback
+            self.app = app
+
+        def __call__(self, *a, **kw):
+            resp = self.callback(*a, **kw)
+            if request.method == 'GET':
+                return resp;
+            json = request.json
+            if self.suppress_json_logging:
+                json = None
+            session = self.app.session_handler.get_session_from_cookie()
+            user = None
+            if "/login" in request.url:
+                user = request.parameter_list[0]
+            elif session is not None:
+                user = session['user']
+            print("{remote} user:{user} {method} {url} json:{json} {status}" \
+                .format(
+                    user=user,
+                    remote=request.remote_addr,
+                    method=request.method,
+                    url=request.url,
+                    json=json,
+                    status=response.status))
+            return resp;
+
+    def apply(self, callback, route):
+        cb = route.get_undecorated_callback()
+        skip = getattr(
+            cb, 'suppress_logging', None)
+        if skip:
+            return callback
+
+        suppress_json_logging = getattr(
+            cb, 'suppress_json_logging', None)
+        return self.Logger(suppress_json_logging, callback, cb.app)
+
+
 class App(Bottle):
     def __init__(self, **kw):
         super(App, self).__init__(autojson=False)
@@ -1526,6 +1581,7 @@ class App(Bottle):
         self.install(JsonApiResponsePlugin(self))
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())
+        self.install(LoggingPlugin())
 
     def install_hooks(self):
         self.error_handler_type = type(self.default_error_handler)

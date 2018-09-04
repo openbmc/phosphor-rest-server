@@ -27,7 +27,7 @@ from obmc.dbuslib.introspection import IntrospectionNodeParser
 import obmc.mapper
 import spwd
 import grp
-import crypt
+import pamela
 import tempfile
 import re
 import mimetypes
@@ -672,9 +672,9 @@ class SessionHandler(MethodHandler):
     @staticmethod
     def authenticate(username, clear):
         try:
-            encoded = spwd.getspnam(username)[1]
-            return encoded == crypt.crypt(clear, encoded)
-        except KeyError:
+            pamela.authenticate(username, clear, "restServer")
+            return True
+        except PAMError:
             return False
 
     def invalidate_session(self, session):

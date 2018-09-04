@@ -25,9 +25,9 @@ from bottle import static_file
 import obmc.utils.misc
 from obmc.dbuslib.introspection import IntrospectionNodeParser
 import obmc.mapper
-import spwd
 import grp
-import crypt
+import pamela
+from pamela import PAMError
 import tempfile
 import re
 import mimetypes
@@ -674,14 +674,6 @@ class SessionHandler(MethodHandler):
         self.hmac_key = os.urandom(128)
         self.session_store = []
 
-    @staticmethod
-    def authenticate(username, clear):
-        try:
-            encoded = spwd.getspnam(username)[1]
-            return encoded == crypt.crypt(clear, encoded)
-        except KeyError:
-            return False
-
     def invalidate_session(self, session):
         try:
             self.session_store.remove(session)
@@ -728,8 +720,26 @@ class SessionHandler(MethodHandler):
         if len(request.parameter_list) != 2:
             abort(400, self.bad_json_str % (request.json))
 
-        if not self.authenticate(*request.parameter_list):
-            abort(401, self.bad_passwd_str)
+        user = request.parameter_list[0]
+        password = request.parameter_list[1]
+        if not isinstance(user, unicode) or not isinstance(password, unicode):
+            abort(400, self.bad_json_str % (request.json))
+
+        try:
+            pamela.authenticate(user, password, 'phosphor-rest-server')
+            # check the account status whether account is expired or
+            # the authentication token / pasword is expired.
+            pamela.check_account(user)
+        except PAMError as e:
+            err_str = str(e)
+            # strip the pam error from the beginning of the string
+            # default error string is like below
+            # "[PAM Error 7] Authentication Failure" after strip it
+            # is like as "Authentication Failure".
+            index = err_str.find("]")
+            index = (index + 2) if index > 0 else 0
+            err_str = err_str[index:]
+            abort(401, err_str)
 
         force = False
         try:

@@ -876,6 +876,74 @@ class ImagePostHandler(RouteHandler):
         pass
 
 
+class CertificateHandler:
+    file_loc = '/tmp'
+    file_suffix = '.pem'
+    file_prefix = 'cert_'
+    CERT_BUSNAME = 'xyz.openbmc_project.Certs.Manager'
+    CERT_PATH = '/xyz/openbmc_project/certs'
+    CERT_IFACE = 'xyz.openbmc_project.Certs.Install'
+
+    def do_upload(cls, cert_type, service):
+        def cleanup():
+            if os.path.exists(temp.name):
+                os.remove(temp.name)
+
+        if not service:
+            abort(500, "Missing service")
+        if not cert_type:
+            abort(500, "Missing certificate type")
+
+        with tempfile.NamedTemporaryFile(
+            suffix=cls.file_suffix,
+            prefix=cls.file_prefix,
+            delete=False) as temp:
+            try:
+                file_contents = request.body.read()
+                request.body.close()
+                temp.write(file_contents)
+            except (IOError, ValueError) as e:
+                cleanup()
+                abort(500, str(e))
+            except Exception:
+                cleanup()
+                abort(500, "Unexpected Error")
+
+        try:
+            bus = dbus.SystemBus()
+            busName = cls.CERT_BUSNAME + "." + cert_type.capitalize() + "." \
+                + service.capitalize()
+            certPath = cls.CERT_PATH + "/" + cert_type + "/" + service
+            obj = bus.get_object(busName, certPath)
+            iface = dbus.Interface(obj, cls.CERT_IFACE)
+            iface.Install(temp.name)
+        except dbus.exceptions.DBusException as e:
+            cleanup()
+            abort(503, str(e))
+        cleanup()
+
+
+class CertificatePutHandler(RouteHandler):
+    ''' Handles the /xyz/openbmc_project/certs/<cert_type>/<service> route. '''
+
+    verbs = ['PUT']
+    rules = ['/xyz/openbmc_project/certs/<cert_type>/<service>']
+    content_type = 'application/octet-stream'
+
+    def __init__(self, app, bus):
+        super(CertificatePutHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_put(self, cert_type, service):
+        return CertificateHandler().do_upload(cert_type, service)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
 class EventNotifier:
     keyNames = {}
     keyNames['event'] = 'event'
@@ -1647,6 +1715,7 @@ class App(Bottle):
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
+        self.certificate_put_handler = CertificatePutHandler(self, self.bus)
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
             self.host_console_handler = HostConsoleHandler(self, self.bus)
@@ -1664,6 +1733,7 @@ class App(Bottle):
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
         self.download_dump_get_handler.install()
+        self.certificate_put_handler.install()
         if self.have_wsock:
             self.event_handler.install()
             self.host_console_handler.install()

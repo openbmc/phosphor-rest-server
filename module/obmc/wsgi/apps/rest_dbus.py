@@ -870,7 +870,58 @@ class ImagePostHandler(RouteHandler):
     def setup(self, **kw):
         pass
 
+class CertificateHandler:
+    file_loc = '/tmp'
+    file_suffix = '.pem'
+    CERT_IFACE = '';
+    CERT_PATH = '';
+    def do_upload(cls, type='', service=''):
+        if not service:
+            abort(400, "Missing service")
+        if not type:
+            abort(400, "Missing certificate type")
 
+        prefix = type + "_" + service
+        handle, filename = tempfile.mkstemp(cls.file_suffix,
+                                                prefix, cls.file_loc)
+        try:
+            file_contents = request.body.read()
+            request.body.close()
+            os.write(handle, file_contents)
+            os.close(handle)
+        except (IOError, ValueError) as e:
+            cleanup()
+            abort(400, str(e))
+        except Exception:
+            cleanup()
+            abort(400, "Unexpected Error")
+
+        try:
+            obj = cls.bus.get_object(cls.CERT_IFACE, cls.CERT_PATH)
+            iface = dbus.Interface(obj, dbus.PROPERTIES_IFACE)
+            iface.update(cls.file_loc + "/" + filename);
+        except dbus.exceptions.DBusException:
+            abort(400, "Unexpected Error")
+
+class CertificatePutHandler(RouteHandler):
+    ''' Handles the /xyz/openbmc_projects/certs/server/<service> route. '''
+
+    verbs = ['PUT']
+    rules = ['/xyz/openbmc_projects/certs/<type>/<service>']
+    content_type = 'application/octet-stream'
+    def __init__(self, app, bus):
+        super(CertificatePutHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_put(self, type='', service=''):
+         return CertificateHandler().do_upload(type,service)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+    
 class EventNotifier:
     keyNames = {}
     keyNames['event'] = 'event'
@@ -1550,6 +1601,7 @@ class App(Bottle):
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
+        self.certificate_put_handler = CertificatePutHandler(self, self.bus)
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
             self.host_console_handler = HostConsoleHandler(self, self.bus)
@@ -1567,6 +1619,7 @@ class App(Bottle):
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
         self.download_dump_get_handler.install()
+        self.certificate_put_handler.install()
         if self.have_wsock:
             self.event_handler.install()
             self.host_console_handler.install()

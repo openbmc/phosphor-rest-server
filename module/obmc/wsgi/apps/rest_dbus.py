@@ -16,6 +16,7 @@
 
 import os
 import sys
+import errno
 import dbus
 import dbus.exceptions
 import json
@@ -871,6 +872,78 @@ class ImagePostHandler(RouteHandler):
         pass
 
 
+class CertificateHandler:
+    file_loc = '/tmp'
+    file_suffix = '.pem'
+    file_prefix = 'cert_'
+    CERT_BUSNAME = 'xyz.openbmc_project.Certs.Manager'
+    CERT_PATH = '/xyz/openbmc_project/certs'
+    CERT_IFACE = 'xyz.openbmc_project.Certs.Install'
+
+    def do_upload(cls, type, service):
+        def cleanup():
+            try:
+                os.close(handle)
+            except OSError as e:
+                if e.errno != errno.EBADF:
+                    raise
+            if os.path.exists(filename):
+                os.remove(filename)
+
+        if not service:
+            abort(400, "Missing service")
+        if not type:
+            abort(400, "Missing certificate type")
+
+        handle, filename = tempfile.mkstemp(cls.file_suffix,
+                                            cls.file_prefix, cls.file_loc)
+        try:
+            file_contents = request.body.read()
+            request.body.close()
+            os.write(handle, file_contents)
+            os.close(handle)
+        except (IOError, ValueError) as e:
+            cleanup()
+            abort(500, str(e))
+        except Exception:
+            cleanup()
+            abort(500, "Unexpected Error")
+        try:
+            bus = dbus.SystemBus()
+            busName = cls.CERT_BUSNAME + "." + type.capitalize() + "." \
+                + service.capitalize()
+            certPath = cls.CERT_PATH + "/" + type + "/" + service
+            obj = bus.get_object(busName, certPath)
+            iface = dbus.Interface(obj, cls.CERT_IFACE)
+            iface.Install(filename)
+        except dbus.exceptions.DBusException as e:
+            cleanup()
+            abort(503, str(e))
+        if os.path.exists(filename):
+            os.remove(filename)
+
+
+class CertificatePutHandler(RouteHandler):
+    ''' Handles the /xyz/openbmc_project/certs/<type>/<service> route. '''
+
+    verbs = ['PUT']
+    rules = ['/xyz/openbmc_project/certs/<type>/<service>']
+    content_type = 'application/octet-stream'
+
+    def __init__(self, app, bus):
+        super(CertificatePutHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_put(self, type, service):
+        return CertificateHandler().do_upload(type, service)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+
 class EventNotifier:
     keyNames = {}
     keyNames['event'] = 'event'
@@ -1550,6 +1623,7 @@ class App(Bottle):
         self.image_upload_post_handler = ImagePostHandler(self, self.bus)
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
+        self.certificate_put_handler = CertificatePutHandler(self, self.bus)
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
             self.host_console_handler = HostConsoleHandler(self, self.bus)
@@ -1567,6 +1641,7 @@ class App(Bottle):
         self.image_upload_post_handler.install()
         self.image_upload_put_handler.install()
         self.download_dump_get_handler.install()
+        self.certificate_put_handler.install()
         if self.have_wsock:
             self.event_handler.install()
             self.host_console_handler.install()

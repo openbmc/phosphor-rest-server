@@ -1518,9 +1518,20 @@ class LoggingPlugin(object):
             self.suppress_json_logging = suppress_json_logging
             self.callback = callback
             self.app = app
+            self.logging_enabled = None
+            self.bus = dbus.SystemBus()
+            self.dbus_path = '/xyz/openbmc_project/logging/rest_api_logs'
+            self.bus.add_signal_receiver(
+                self.properties_changed_handler,
+                dbus_interface=dbus.PROPERTIES_IFACE,
+                signal_name='PropertiesChanged',
+                path=self.dbus_path)
+            Greenlet.spawn(self.dbus_loop)
 
         def __call__(self, *a, **kw):
             resp = self.callback(*a, **kw)
+            if not self.enabled():
+                return resp;
             if request.method == 'GET':
                 return resp;
             json = request.json
@@ -1541,6 +1552,36 @@ class LoggingPlugin(object):
                     json=json,
                     status=response.status))
             return resp;
+
+        def enabled(self):
+            if self.logging_enabled is None:
+                try:
+                    obj = self.bus.get_object(
+                              'xyz.openbmc_project.Settings',
+                              self.dbus_path)
+                    iface = dbus.Interface(obj, dbus.PROPERTIES_IFACE)
+                    logging_enabled = iface.Get(
+                                          'xyz.openbmc_project.Object.Enable',
+                                          'Enabled')
+                    self.logging_enabled = logging_enabled
+                except dbus.exceptions.DBusException:
+                    self.logging_enabled = False
+            return self.logging_enabled
+
+        def dbus_loop(self):
+            loop = gobject.MainLoop()
+            gcontext = loop.get_context()
+            while loop is not None:
+                try:
+                    if gcontext.pending():
+                        gcontext.iteration()
+                    else:
+                        gevent.sleep(5)
+                except Exception as e:
+                    break
+
+        def properties_changed_handler(self, interface, new, old, **kw):
+            self.logging_enabled = new.values()[0]
 
     def apply(self, callback, route):
         cb = route.get_undecorated_callback()

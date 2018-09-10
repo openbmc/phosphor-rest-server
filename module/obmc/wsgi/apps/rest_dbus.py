@@ -873,6 +873,8 @@ class ImagePostHandler(RouteHandler):
 class CertificateHandler:
     file_loc = '/tmp'
     file_suffix = '.pem'
+    CERT_IFACE = '';
+    CERT_PATH = '';
     def do_upload(cls, type='', service=''):
         if not service:
             abort(400, "Missing service")
@@ -892,6 +894,13 @@ class CertificateHandler:
             abort(400, str(e))
         except Exception:
             cleanup()
+            abort(400, "Unexpected Error")
+
+        try:
+            obj = cls.bus.get_object(cls.CERT_IFACE, cls.CERT_PATH)
+            iface = dbus.Interface(obj, dbus.PROPERTIES_IFACE)
+            iface.update(cls.file_loc + "/" + filename);
+        except dbus.exceptions.DBusException:
             abort(400, "Unexpected Error")
 
 class CertificatePutHandler(RouteHandler):

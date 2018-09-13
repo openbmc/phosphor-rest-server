@@ -1531,9 +1531,9 @@ class LoggingPlugin(object):
         def __call__(self, *a, **kw):
             resp = self.callback(*a, **kw)
             if not self.enabled():
-                return resp;
+                return resp
             if request.method == 'GET':
-                return resp;
+                return resp
             json = request.json
             if self.suppress_json_logging:
                 json = None
@@ -1551,7 +1551,7 @@ class LoggingPlugin(object):
                     url=request.url,
                     json=json,
                     status=response.status))
-            return resp;
+            return resp
 
         def enabled(self):
             if self.logging_enabled is None:

@@ -876,8 +876,13 @@ class ImagePostHandler(RouteHandler):
         pass
 
 class CertificateHandler:
+
     file_loc = '/tmp'
     file_suffix = '.pem'
+    CERT_IFACE = 'xyz.openbmc_project.Certs.Manager'
+    CERT_PATH = '/xyz/openbmc_project/certs'
+    INSTALL = 'xyz.openbmc_project.Certs.Install'
+
     def do_upload(cls, type='', service=''):
         if not service:
             abort(400, "Missing service")
@@ -899,11 +904,21 @@ class CertificateHandler:
             cleanup()
             abort(400, "Unexpected Error")
 
+        try:
+            bus = dbus.SystemBus()
+            certIface = cls.CERT_IFACE + "." + type + "." + service
+            certPath = cls.CERT_PATH + "/" + type + "/" + service
+            obj = bus.get_object(certIface, certPath)
+            iface = dbus.Interface(obj, cls.INSTALL)
+            iface.Install(filename)
+        except dbus.exceptions.DBusException:
+            abort(400, "Unexpected Error")
+
 class CertificatePutHandler(RouteHandler):
-    ''' Handles the /xyz/openbmc_projects/certs/server/<service> route. '''
+    ''' Handles the /xyz/openbmc_project/certs/server/<service> route. '''
 
     verbs = ['PUT']
-    rules = ['/xyz/openbmc_projects/certs/<type>/<service>']
+    rules = ['/xyz/openbmc_project/certs/<type>/<service>']
     content_type = 'application/octet-stream'
     def __init__(self, app, bus):
         super(CertificatePutHandler, self).__init__(

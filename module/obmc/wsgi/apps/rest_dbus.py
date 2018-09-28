@@ -33,6 +33,8 @@ from shutil import copyfile
 import tempfile
 import re
 import mimetypes
+import pwd
+import grp
 have_wsock = True
 try:
     from geventwebsocket import WebSocketError
@@ -674,12 +676,24 @@ class SessionHandler(MethodHandler):
     BMCSTATE_PROPERTY = 'CurrentBMCState'
     BMCSTATE_READY = 'xyz.openbmc_project.State.BMC.BMCState.Ready'
     suppress_json_logging = True
+    USER_MGR = 'xyz.openbmc_project.User.Manager'
+    USER_ROOT = '/xyz/openbmc_project/user/'
+    USER_ATTR_IFACE = 'xyz.openbmc_project.User.Attributes'
+    USER_PRIV = 'UserPrivilege'
+    OBJMGR_INTF = 'org.freedesktop.DBus.ObjectManager'
+    LDAP_MAPPER_MGR = 'xyz.openbmc_project.LDAP.PrivilegeMapper'
+    LDAP_MAPPER_ROOT = '/xyz/openbmc_project/user/ldap'
+    LDAP_MAPPER_IFACE = 'xyz.openbmc_project.User.PrivilegeMapperEntry'
+    PRIV_PROP = 'Privilege'
+    GROUPNAME_PROP = 'GroupName'
+    PRIV_USER = 'priv-user'
 
     def __init__(self, app, bus):
         super(SessionHandler, self).__init__(
             app, bus)
         self.hmac_key = os.urandom(128)
         self.session_store = []
+        self.mapper = obmc.mapper.Mapper(bus)
 
     def invalidate_session(self, session):
         try:
@@ -760,6 +774,7 @@ class SessionHandler(MethodHandler):
         user = request.parameter_list[0]
         session = self.new_session()
         session['user'] = user
+        session['privilege'] = self.get_user_privilege(user)
         response.set_cookie(
             'sid', session['sid'], secret=self.hmac_key,
             secure=True,
@@ -781,6 +796,64 @@ class SessionHandler(MethodHandler):
             pass
 
         return False
+
+    def local_user_privilege(self, user):
+        # Get the user privilege attribute for the local user
+        objpath = self.USER_ROOT + user
+        try:
+            intfs = self.mapper.get_object(objpath)
+            for busname,intf in intfs.items():
+                if self.USER_ATTR_IFACE in intf:
+                    obj = self.bus.get_object(busname, objpath)
+                    iface = dbus.Interface(obj, dbus.PROPERTIES_IFACE)
+                    value =  iface.Get(self.USER_ATTR_IFACE, self.USER_PRIV)
+                    return True, value
+
+        except dbus.exceptions.DBusException:
+            return False, self.PRIV_USER
+
+        return False, self.PRIV_USER
+
+    def ldap_user_privilege(self, user):
+        # Get the LDAP group name associated with the user.
+        gid = pwd.getpwnam(user).pw_gid
+        groups = iter(grp.getgrall())
+        while True:
+            try:
+                group = next(groups)
+                if group.gr_gid == gid:
+                    group_name = group.gr_name
+                    break
+            except StopIteration:
+                # Return 'priv-user' if fetching the LDAP group name fails.
+                return False, self.PRIV_USER
+
+        # Check if privilege mapping exists for the LDAP group.
+        try:
+            obj = self.bus.get_object(self.LDAP_MAPPER_MGR,
+                                      self.LDAP_MAPPER_ROOT)
+            mapper_dict = obj.GetManagedObjects(dbus_interface=self.OBJMGR_INTF)
+            for key,value in mapper_dict.iteritems():
+                for intf,prop in value.iteritems():
+                    if intf == self.LDAP_MAPPER_IFACE:
+                        if prop[self.GROUPNAME_PROP] == group_name:
+                            return True, prop[self.PRIV_PROP]
+
+        except dbus.exceptions.DBusException:
+            return False, self.PRIV_USER
+
+        return False, self.PRIV_USER
+
+    def get_user_privilege(self, user):
+        status_local, priv_local = self.local_user_privilege(user)
+        if status_local:
+            return priv_local
+
+        status_ldap, priv_ldap = self.ldap_user_privilege(user)
+        if status_ldap:
+            return priv_ldap
+
+        return self.PRIV_USER
 
     def find(self, **kw):
         pass

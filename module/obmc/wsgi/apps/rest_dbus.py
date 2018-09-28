@@ -31,6 +31,8 @@ from pamela import PAMError
 import tempfile
 import re
 import mimetypes
+import pwd
+import grp
 have_wsock = True
 try:
     from geventwebsocket import WebSocketError
@@ -667,6 +669,15 @@ class SessionHandler(MethodHandler):
     BMCSTATE_PROPERTY = 'CurrentBMCState'
     BMCSTATE_READY = 'xyz.openbmc_project.State.BMC.BMCState.Ready'
     suppress_json_logging = True
+    USER_MGR = 'xyz.openbmc_project.User.Manager'
+    USER_ROOT = '/xyz/openbmc_project/user/'
+    USER_ATTR_IFACE = 'xyz.openbmc_project.User.Attributes'
+    USER_PRIV = 'UserPrivilege'
+    LDAP_MAPPER_MGR = 'xyz.openbmc_project.LDAPMapper.Manager'
+    LDAP_MAPPER_ROOT = '/xyz/openbmc_project/user/ldap/'
+    LDAP_MAPPER_IFACE = 'xyz.openbmc_project.User.PrivilegeMapperEntry'
+    PRIV_PROP = 'Privilege'
+    PRIV_USER = 'priv-user'
 
     def __init__(self, app, bus):
         super(SessionHandler, self).__init__(
@@ -748,6 +759,7 @@ class SessionHandler(MethodHandler):
         user = request.parameter_list[0]
         session = self.new_session()
         session['user'] = user
+        session['privilege'] = self.get_user_privilege(user)
         response.set_cookie(
             'sid', session['sid'], secret=self.hmac_key,
             secure=True,
@@ -769,6 +781,57 @@ class SessionHandler(MethodHandler):
             pass
 
         return False
+
+    def local_user_privilege(self, user):
+        # Get the user privilege attribute for the local user
+        objpath = self.USER_ROOT + user
+        try:
+            obj = self.bus.get_object(self.USER_MGR, objpath)
+            iface = dbus.Interface(obj, dbus.PROPERTIES_IFACE)
+            value =  iface.Get(self.USER_ATTR_IFACE, self.USER_PRIV)
+            return True, value
+
+        except dbus.exceptions.DBusException:
+            return False, self.PRIV_USER
+
+
+    def ldap_user_privilege(self, user):
+        # Get the LDAP group name associated with the user.
+        gid = pwd.getpwnam(user).pw_gid
+        groups = grp.getgrall()
+        match = [g for g in groups if g.gr_gid == gid]
+        if not match:
+            # Return 'priv-user' if fetching the LDAP group name fails.
+            return False, self.PRIV_USER
+        else:
+            group_name = match[0].gr_name
+
+        # Check if privilege mapping exists for the LDAP group. The spaces in
+        # LDAP group name is stripped, since the D-Bus object path cannot have
+        # spaces. When creating the privilege mapping it strips the space in
+        # group name. If the privilege mapping exists the group name element in
+        # D-Bus object path is stripped of the spaces.
+        group_name = group_name.replace(" ", "")
+        objpath = self.LDAP_MAPPER_ROOT + group_name
+        try:
+            obj = self.bus.get_object(self.LDAP_MAPPER_MGR, objpath)
+            iface = dbus.Interface(obj, dbus.PROPERTIES_IFACE)
+            value = iface.Get(self.LDAP_MAPPER_IFACE, self.PRIV_PROP)
+            return True, value
+
+        except dbus.exceptions.DBusException:
+            return False, self.PRIV_USER
+
+    def get_user_privilege(self, user):
+        status_local, priv_local = self.local_user_privilege(user)
+        if status_local:
+            return priv_local
+
+        status_ldap, priv_ldap = self.ldap_user_privilege(user)
+        if status_ldap:
+            return priv_ldap
+
+        return self.PRIV_USER
 
     def find(self, **kw):
         pass

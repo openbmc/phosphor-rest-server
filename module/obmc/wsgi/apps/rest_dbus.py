@@ -687,6 +687,7 @@ class SessionHandler(MethodHandler):
     PRIV_PROP = 'Privilege'
     GROUPNAME_PROP = 'GroupName'
     PRIV_USER = 'priv-user'
+    authorize_check = False
 
     def __init__(self, app, bus):
         super(SessionHandler, self).__init__(
@@ -1798,6 +1799,42 @@ class LoggingPlugin(object):
             cb, 'suppress_json_logging', None)
         return self.Logger(suppress_json_logging, callback, cb.app)
 
+class PrivilegePlugin(object):
+    ''' Authorizes the request only if the session has the appropriate
+        privilege. '''
+    name = 'authp'
+    api = 2
+
+    class PrivilegeChecker:
+        def __init__(self, callback, app):
+            self.callback = callback
+            self.app = app
+
+        def __call__(self, *a, **kw):
+            # HTTP verb "GET" is authorized irrespective of the privilege level
+            # of the session. If the session has "priv-admin" privilege all the
+            # REST API's can be executed.
+            if request.method == 'GET':
+                return self.callback(*a, **kw)
+
+            session = self.app.session_handler.get_session_from_cookie()
+            privilege = None
+            if session is not None:
+                privilege = session['privilege']
+                if privilege != 'priv-admin':
+                    abort(401, 'Insufficient privilege')
+                else:
+                    return self.callback(*a, **kw)
+            else:
+                 abort(401, 'Session not found')
+
+    def apply(self, callback, route):
+        cb = route.get_undecorated_callback()
+        check = getattr(cb, 'authorize_check', True)
+        if not check:
+            return callback
+
+        return self.PrivilegeChecker(callback, cb.app)
 
 class LDAPConfigWatcher:
     def __init__(self):
@@ -1870,6 +1907,7 @@ class App(Bottle):
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())
         self.install(LoggingPlugin())
+        self.install(PrivilegePlugin())
 
     def install_hooks(self):
         self.error_handler_type = type(self.default_error_handler)

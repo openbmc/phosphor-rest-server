@@ -678,6 +678,7 @@ class SessionHandler(MethodHandler):
     LDAP_MAPPER_IFACE = 'xyz.openbmc_project.User.PrivilegeMapperEntry'
     PRIV_PROP = 'Privilege'
     PRIV_USER = 'priv-user'
+    authorize_check = False
 
     def __init__(self, app, bus):
         super(SessionHandler, self).__init__(
@@ -1665,6 +1666,44 @@ class LoggingPlugin(object):
             cb, 'suppress_json_logging', None)
         return self.Logger(suppress_json_logging, callback, cb.app)
 
+class PrivilegePlugin(object):
+    ''' Authorizes the request only if the session has the appropriate
+        privilege. '''
+    name = 'authp'
+    api = 2
+
+    class PrivilegeChecker:
+        def __init__(self, callback, app):
+            self.callback = callback
+            self.app = app
+
+        def __call__(self, *a, **kw):
+            # phosphor-rest-server supports two privilege levels "priv-admin"
+            # and "priv-user". If the session has "priv-user" privilege only the
+            # REST API with HTTP verb "GET" is authorized. If the session has
+            # "priv-admin" privilege all the REST API's can be executed.
+            if request.method == 'GET':
+                return self.callback(*a, **kw)
+
+            session = self.app.session_handler.get_session_from_cookie()
+            privilege = None
+            if session is not None:
+                privilege = session['privilege']
+                if privilege not in ['priv-admin']:
+                    abort(403, 'Insufficient privilege')
+                else:
+                    return self.callback(*a, **kw)
+            else:
+                 abort(403, 'Session not found')
+
+    def apply(self, callback, route):
+        cb = route.get_undecorated_callback()
+        check = getattr(cb, 'authorize_check', True)
+        if not check:
+            return callback
+
+        return self.PrivilegeChecker(callback, cb.app)
+
 
 class App(Bottle):
     def __init__(self, **kw):
@@ -1694,6 +1733,7 @@ class App(Bottle):
         self.install(JsonApiRequestPlugin())
         self.install(JsonApiRequestTypePlugin())
         self.install(LoggingPlugin())
+        self.install(PrivilegePlugin())
 
     def install_hooks(self):
         self.error_handler_type = type(self.default_error_handler)

@@ -877,25 +877,34 @@ class ImagePostHandler(RouteHandler):
 
 
 class CertificateHandler:
-    file_loc = '/tmp'
     file_suffix = '.pem'
     file_prefix = 'cert_'
     CERT_PATH = '/xyz/openbmc_project/certs'
     CERT_IFACE = 'xyz.openbmc_project.Certs.Install'
 
-    def do_upload(cls, route_handler, cert_type, service):
-        def cleanup():
-            if os.path.exists(temp.name):
-                os.remove(temp.name)
-
+    def __init__(self, route_handler, cert_type, service):
         if not service:
             abort(500, "Missing service")
         if not cert_type:
             abort(500, "Missing certificate type")
+        bus = dbus.SystemBus()
+        certPath = self.CERT_PATH + "/" + cert_type + "/" + service
+        intfs = route_handler.try_mapper_call(
+            route_handler.mapper.get_object, path=certPath)
+        for busName,intf in intfs.items():
+            if self.CERT_IFACE in intf:
+                self.obj = bus.get_object(busName, certPath)
+                return
+        abort(404, "Path not found")
+
+    def do_upload(self):
+        def cleanup():
+            if os.path.exists(temp.name):
+                os.remove(temp.name)
 
         with tempfile.NamedTemporaryFile(
-            suffix=cls.file_suffix,
-            prefix=cls.file_prefix,
+            suffix=self.file_suffix,
+            prefix=self.file_prefix,
             delete=False) as temp:
             try:
                 file_contents = request.body.read()
@@ -909,27 +918,23 @@ class CertificateHandler:
                 abort(500, "Unexpected Error")
 
         try:
-            bus = dbus.SystemBus()
-            certPath = cls.CERT_PATH + "/" + cert_type + "/" + service
-            intfs = route_handler.try_mapper_call(
-                route_handler.mapper.get_object, path=certPath)
-            for busname,intf in intfs.items():
-                if cls.CERT_IFACE in intf:
-                    obj = bus.get_object(busName, certPath)
-                    iface = dbus.Interface(obj, cls.CERT_IFACE)
-                    iface.Install(temp.name)
-                    break
-            abort(404, "Path not found")
+            iface = dbus.Interface(self.obj, self.CERT_IFACE)
+            iface.Install(temp.name)
         except Exception as e:
             cleanup()
             abort(503, str(e))
         cleanup()
 
+    def do_delete(self):
+        delete_iface = dbus.Interface(
+            self.obj, dbus_interface=DELETE_IFACE)
+        delete_iface.Delete()
+
 
 class CertificatePutHandler(RouteHandler):
     ''' Handles the /xyz/openbmc_project/certs/<cert_type>/<service> route. '''
 
-    verbs = ['PUT']
+    verbs = ['PUT', 'DELETE']
     rules = ['/xyz/openbmc_project/certs/<cert_type>/<service>']
     content_type = 'application/octet-stream'
 
@@ -938,7 +943,10 @@ class CertificatePutHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_put(self, cert_type, service):
-        return CertificateHandler().do_upload(self, cert_type, service)
+        return CertificateHandler(self, cert_type, service).do_upload()
+
+    def do_delete(self, cert_type, service):
+        return CertificateHandler(self, cert_type, service).do_delete()
 
     def find(self, **kw):
         pass

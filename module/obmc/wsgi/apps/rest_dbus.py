@@ -27,7 +27,9 @@ from obmc.dbuslib.introspection import IntrospectionNodeParser
 import obmc.mapper
 import grp
 import pamela
+import shutil
 from pamela import PAMError
+from shutil import copyfile
 import tempfile
 import re
 import mimetypes
@@ -55,6 +57,11 @@ DBUS_INVALID_ARGS = 'org.freedesktop.DBus.Error.InvalidArgs'
 DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
 SOFTWARE_PATH = '/xyz/openbmc_project/software'
+LDAP_ROOT_PATH = '/xyz/openbmc_project/user/ldap'
+LDAP_CONFIG_PATH = '/xyz/openbmc_project/user/ldap/config'
+PAM_LDAP_ENABLED_FILE = '/etc/pam.d/phosphor-rest-server-ldap'
+PAM_LDAP_DISABLED_FILE = '/etc/pam.d/phosphor-rest-server-linux'
+PAM_FILE = '/etc/pam.d/phosphor-rest-server'
 WEBSOCKET_TIMEOUT = 45
 
 _4034_msg = "The specified %s cannot be %s: '%s'"
@@ -1700,6 +1707,48 @@ class LoggingPlugin(object):
         return self.Logger(suppress_json_logging, callback, cb.app)
 
 
+class LDAPConfigWatcher:
+    def __init__(self):
+        self.bus = dbus.SystemBus()
+        self.bus.add_signal_receiver(
+            self.interfaces_added_handler,
+            dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
+            signal_name='InterfacesAdded',
+            path=LDAP_ROOT_PATH)
+        self.bus.add_signal_receiver(
+            self.interfaces_removed_handler,
+            dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
+            signal_name='InterfacesRemoved',
+            path=LDAP_ROOT_PATH)
+
+        Greenlet.spawn(self.dbus_loop)
+
+    def dbus_loop(self):
+        loop = gobject.MainLoop()
+        gcontext = loop.get_context()
+        while loop is not None:
+            try:
+                if gcontext.pending():
+                    gcontext.iteration()
+                else:
+                    gevent.sleep(1)
+            except Exception as e:
+                break
+
+
+    def interfaces_added_handler(self, path, iprops, **kw):
+        ''' LDAP Config created, so change the PAM config file to
+            allow LDAP'''
+        if path == LDAP_CONFIG_PATH:
+            shutil.copyfile(PAM_LDAP_ENABLED_FILE, PAM_FILE)
+
+    def interfaces_removed_handler(self, path, iprops, **kw):
+        ''' LDAP Config deleted, so change the PAM config file to
+            remove LDAP module'''
+        if path == LDAP_CONFIG_PATH:
+            shutil.copyfile(PAM_LDAP_DISABLED_FILE, PAM_FILE)
+
+
 class App(Bottle):
     def __init__(self, **kw):
         super(App, self).__init__(autojson=False)
@@ -1715,6 +1764,7 @@ class App(Bottle):
         self.install_plugins()
         self.create_handlers()
         self.install_handlers()
+        self.config_watcher = LDAPConfigWatcher()
 
     def install_plugins(self):
         # install json api plugins

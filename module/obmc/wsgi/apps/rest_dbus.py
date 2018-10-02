@@ -880,11 +880,10 @@ class CertificateHandler:
     file_loc = '/tmp'
     file_suffix = '.pem'
     file_prefix = 'cert_'
-    CERT_BUSNAME = 'xyz.openbmc_project.Certs.Manager'
     CERT_PATH = '/xyz/openbmc_project/certs'
     CERT_IFACE = 'xyz.openbmc_project.Certs.Install'
 
-    def do_upload(cls, cert_type, service):
+    def do_upload(cls, route_handler, cert_type, service):
         def cleanup():
             if os.path.exists(temp.name):
                 os.remove(temp.name)
@@ -911,13 +910,17 @@ class CertificateHandler:
 
         try:
             bus = dbus.SystemBus()
-            busName = cls.CERT_BUSNAME + "." + cert_type.capitalize() + "." \
-                + service.capitalize()
             certPath = cls.CERT_PATH + "/" + cert_type + "/" + service
-            obj = bus.get_object(busName, certPath)
-            iface = dbus.Interface(obj, cls.CERT_IFACE)
-            iface.Install(temp.name)
-        except dbus.exceptions.DBusException as e:
+            intfs = route_handler.try_mapper_call(
+                route_handler.mapper.get_object, path=certPath)
+            for busname,intf in intfs.items():
+                if cls.CERT_IFACE in intf:
+                    obj = bus.get_object(busName, certPath)
+                    iface = dbus.Interface(obj, cls.CERT_IFACE)
+                    iface.Install(temp.name)
+                    break
+            abort(404, "Path not found")
+        except Exception as e:
             cleanup()
             abort(503, str(e))
         cleanup()
@@ -935,7 +938,7 @@ class CertificatePutHandler(RouteHandler):
             app, bus, self.verbs, self.rules, self.content_type)
 
     def do_put(self, cert_type, service):
-        return CertificateHandler().do_upload(cert_type, service)
+        return CertificateHandler().do_upload(self, cert_type, service)
 
     def find(self, **kw):
         pass

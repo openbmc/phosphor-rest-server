@@ -922,7 +922,7 @@ class CertificateHandler:
             iface.Install(temp.name)
         except Exception as e:
             cleanup()
-            abort(503, str(e))
+            abort(400, str(e))
         cleanup()
 
     def do_delete(self):

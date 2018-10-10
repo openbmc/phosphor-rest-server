@@ -959,6 +959,7 @@ class EventNotifier:
         self.wsock = wsock
         self.paths = filters.get("paths", [])
         self.interfaces = filters.get("interfaces", [])
+        self.socket_error = False
         if not self.paths:
             self.paths.append(None)
         bus = dbus.SystemBus()
@@ -983,6 +984,10 @@ class EventNotifier:
         gcontext = loop.get_context()
         while loop is not None:
             try:
+                if self.socket_error:
+                    print("Socket error detected, break")
+                    loop.quit()
+                    break;
                 if gcontext.pending():
                     gcontext.iteration()
                 else:
@@ -990,6 +995,7 @@ class EventNotifier:
                     # not the entire process.
                     gevent.sleep(5)
             except WebSocketError:
+                print("WebSocketError in main loop")
                 break
 
     def interfaces_added_handler(self, path, iprops, **kw):
@@ -1003,7 +1009,9 @@ class EventNotifier:
             response[self.keyNames['intfMap']] = iprops
             try:
                 self.wsock.send(json.dumps(response))
-            except WebSocketError:
+            except:
+                print("interfaces_added - wsock error")
+                self.socket_error = True
                 return
 
     def properties_changed_handler(self, interface, new, old, **kw):
@@ -1018,7 +1026,9 @@ class EventNotifier:
             response[self.keyNames['propMap']] = new
             try:
                 self.wsock.send(json.dumps(response))
-            except WebSocketError:
+            except:
+                print("properties_changed - wsock error")
+                self.socket_error = True
                 return
 
 
@@ -1047,7 +1057,9 @@ class EventHandler(RouteHandler):
         ping_sender = Greenlet.spawn(send_ws_ping, wsock, WEBSOCKET_TIMEOUT)
         filters = wsock.receive()
         filters = json.loads(filters)
+        print("Starting EventNotifier")
         notifier = EventNotifier(wsock, filters)
+        print("Returned from EventNotifier")
 
 class HostConsoleHandler(RouteHandler):
     ''' Handles the /console route, for clients to be able

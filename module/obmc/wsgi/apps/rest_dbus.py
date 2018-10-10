@@ -959,22 +959,26 @@ class EventNotifier:
         self.wsock = wsock
         self.paths = filters.get("paths", [])
         self.interfaces = filters.get("interfaces", [])
+        self.signals = []
+        self.socket_error = False
         if not self.paths:
             self.paths.append(None)
         bus = dbus.SystemBus()
         # Add a signal receiver for every path the client is interested in
         for path in self.paths:
-            bus.add_signal_receiver(
+            add_sig = bus.add_signal_receiver(
                 self.interfaces_added_handler,
                 dbus_interface=dbus.BUS_DAEMON_IFACE + '.ObjectManager',
                 signal_name='InterfacesAdded',
                 path=path)
-            bus.add_signal_receiver(
+            chg_sig = bus.add_signal_receiver(
                 self.properties_changed_handler,
                 dbus_interface=dbus.PROPERTIES_IFACE,
                 signal_name='PropertiesChanged',
                 path=path,
                 path_keyword='path')
+            self.signals.append(add_sig)
+            self.signals.append(chg_sig)
         loop = gobject.MainLoop()
         # gobject's mainloop.run() will block the entire process, so the gevent
         # scheduler and hence greenlets won't execute. The while-loop below
@@ -983,6 +987,12 @@ class EventNotifier:
         gcontext = loop.get_context()
         while loop is not None:
             try:
+                if self.socket_error:
+                    print("Socket error detected, break")
+                    for signal in self.signals:
+                        signal.remove()
+                    loop.quit()
+                    break;
                 if gcontext.pending():
                     gcontext.iteration()
                 else:
@@ -990,6 +1000,7 @@ class EventNotifier:
                     # not the entire process.
                     gevent.sleep(5)
             except WebSocketError:
+                print("WebSocketError in main loop")
                 break
 
     def interfaces_added_handler(self, path, iprops, **kw):
@@ -1003,7 +1014,8 @@ class EventNotifier:
             response[self.keyNames['intfMap']] = iprops
             try:
                 self.wsock.send(json.dumps(response))
-            except WebSocketError:
+            except:
+                self.socket_error = True
                 return
 
     def properties_changed_handler(self, interface, new, old, **kw):
@@ -1018,7 +1030,8 @@ class EventNotifier:
             response[self.keyNames['propMap']] = new
             try:
                 self.wsock.send(json.dumps(response))
-            except WebSocketError:
+            except:
+                self.socket_error = True
                 return
 
 
@@ -1048,6 +1061,7 @@ class EventHandler(RouteHandler):
         filters = wsock.receive()
         filters = json.loads(filters)
         notifier = EventNotifier(wsock, filters)
+        print("Returned from EventNotifier")
 
 class HostConsoleHandler(RouteHandler):
     ''' Handles the /console route, for clients to be able

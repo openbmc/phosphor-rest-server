@@ -58,6 +58,7 @@ DBUS_TYPE_ERROR = 'org.freedesktop.DBus.Python.TypeError'
 DELETE_IFACE = 'xyz.openbmc_project.Object.Delete'
 SOFTWARE_PATH = '/xyz/openbmc_project/software'
 LDAP_ROOT_PATH = '/xyz/openbmc_project/user/ldap'
+LDAP_CONFIG_PATH = '/xyz/openbmc_project/user/ldap/config'
 PAM_LDAP_ENABLED_FILE = '/etc/pam.d/phosphor-rest-server-ldap'
 PAM_LDAP_DISABLED_FILE = '/etc/pam.d/phosphor-rest-server-linux'
 PAM_FILE = '/etc/pam.d/phosphor-rest-server'
@@ -780,6 +781,49 @@ class SessionHandler(MethodHandler):
             pass
 
         return False
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+class PasswordChangeHandler(RouteHandler):
+    ''' Handles the password change route. '''
+
+    verbs = ['POST']
+    rules = '/xyz/openbmc_project/user/root/action/SetPassword'
+
+    content_type = 'application/json'
+
+    def __init__(self, app, bus):
+        super(PasswordChangeHandler, self).__init__(
+            app, bus, self.verbs, self.rules, self.content_type)
+
+    def do_post(self):
+        try:
+            session = self.app.session_handler.get_session_from_cookie()
+
+            user = session['user']
+            if (user != 'root'):
+                abort(403, 'Insufficient privilege')
+
+            password = request.parameter_list[0]
+            if not isinstance(password, unicode):
+                abort(400, 'Password should be in string format')
+
+            pamela.change_password(user, password, "passwd")
+
+        except PAMError as e:
+            err_str = str(e)
+            # strip the pam error from the beginning of the string
+            # default error string is like below
+            # "[PAM Error 7] Authentication Failure" after strip it
+            # is like as "Authentication Failure".
+            index = err_str.find("]")
+            index = (index + 2) if index > 0 else 0
+            err_str = err_str[index:]
+            abort(401, err_str)
 
     def find(self, **kw):
         pass
@@ -1714,12 +1758,14 @@ class LDAPConfigWatcher:
     def interfaces_added_handler(self, path, iprops, **kw):
         ''' LDAP Config created, so change the PAM config file to
             allow LDAP'''
-        shutil.copyfile(PAM_LDAP_ENABLED_FILE, PAM_FILE)
+        if path == LDAP_CONFIG_PATH:
+            shutil.copyfile(PAM_LDAP_ENABLED_FILE, PAM_FILE)
 
     def interfaces_removed_handler(self, path, iprops, **kw):
         ''' LDAP Config deleted, so change the PAM config file to
             remove LDAP module'''
-        shutil.copyfile(PAM_LDAP_DISABLED_FILE, PAM_FILE)
+        if path == LDAP_CONFIG_PATH:
+            shutil.copyfile(PAM_LDAP_DISABLED_FILE, PAM_FILE)
 
 
 class App(Bottle):
@@ -1776,6 +1822,9 @@ class App(Bottle):
         self.image_upload_put_handler = ImagePutHandler(self, self.bus)
         self.download_dump_get_handler = DownloadDumpHandler(self, self.bus)
         self.certificate_put_handler = CertificatePutHandler(self, self.bus)
+        # special route for password change as don't want the
+        # password to be transmitted over the D-Bus.
+        self.password_change_handler = PasswordChangeHandler(self, self.bus)
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
             self.host_console_handler = HostConsoleHandler(self, self.bus)
@@ -1787,6 +1836,7 @@ class App(Bottle):
         self.directory_handler.install()
         self.list_names_handler.install()
         self.list_handler.install()
+        self.password_change_handler.install()
         self.method_handler.install()
         self.property_handler.install()
         self.schema_handler.install()

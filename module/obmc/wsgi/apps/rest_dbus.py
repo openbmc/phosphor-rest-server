@@ -1600,6 +1600,9 @@ class LoggingPlugin(object):
             self.logging_enabled = None
             self.bus = dbus.SystemBus()
             self.dbus_path = '/xyz/openbmc_project/logging/rest_api_logs'
+            self.no_json = [
+                '/xyz/openbmc_project/user/ldap/action/CreateConfig'
+            ]
             self.bus.add_signal_receiver(
                 self.properties_changed_handler,
                 dbus_interface=dbus.PROPERTIES_IFACE,
@@ -1615,6 +1618,8 @@ class LoggingPlugin(object):
                 return resp
             json = request.json
             if self.suppress_json_logging:
+                json = None
+            elif any(substring in request.url for substring in self.no_json):
                 json = None
             session = self.app.session_handler.get_session_from_cookie()
             user = None

@@ -1126,6 +1126,70 @@ class HostConsoleHandler(RouteHandler):
         gevent.joinall([wsock_reader, sock_reader, ping_sender])
 
 
+class HostKvmHandler(RouteHandler):
+    ''' Handles the /kvm/0 route, for clients to be able to
+        read/write a KVM session. The way this is done
+        is by exposing a websocket that's mirrored to an
+        UNIX domain socket, which is the source for the KVM
+        data. '''
+
+    verbs = ['GET']
+    # Naming the route kvm/0, because the numbering will help
+    # on multi-bmc/multi-host systems.
+    rules = ['/kvm/0']
+
+    def __init__(self, app, bus):
+        super(HostKvmHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+    def read_wsock(self, wsock, sock):
+        while True:
+            try:
+                incoming = wsock.receive()
+                if incoming:
+                    # Read websocket, write to UNIX socket
+                    sock.send(incoming)
+            except Exception as e:
+                sock.close()
+                return
+
+    def read_sock(self, sock, wsock):
+        max_sock_read_len = 3840000
+        while True:
+            try:
+                outgoing = sock.recv(max_sock_read_len)
+                if outgoing:
+                    # Read UNIX socket, write to websocket
+                    wsock.send(outgoing, binary=True)
+            except Exception as e:
+                wsock.close()
+                return
+
+    def do_get(self):
+        wsock = request.environ.get('wsgi.websocket')
+        if not wsock:
+            abort(400, 'Expected WebSocket based request.')
+        HOST = '127.0.0.1'
+        PORT = 5900
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        try:
+            sock.connect((HOST, PORT))
+        except Exception as e:
+            abort(500, str(e))
+
+        wsock_reader = Greenlet.spawn(self.read_wsock, wsock, sock)
+        sock_reader = Greenlet.spawn(self.read_sock, sock, wsock)
+        ping_sender = Greenlet.spawn(send_ws_ping, wsock, WEBSOCKET_TIMEOUT)
+        gevent.joinall([wsock_reader, sock_reader, ping_sender])
+
+
 class ImagePutHandler(RouteHandler):
     ''' Handles the /upload/image/<filename> route. '''
 
@@ -1735,6 +1799,7 @@ class App(Bottle):
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
             self.host_console_handler = HostConsoleHandler(self, self.bus)
+            self.host_kvm_handler = HostKvmHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1753,6 +1818,7 @@ class App(Bottle):
         if self.have_wsock:
             self.event_handler.install()
             self.host_console_handler.install()
+            self.host_kvm_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

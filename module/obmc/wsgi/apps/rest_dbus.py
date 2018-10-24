@@ -26,6 +26,7 @@ import obmc.utils.misc
 from obmc.dbuslib.introspection import IntrospectionNodeParser
 import obmc.mapper
 import spwd
+from subprocess import Popen, PIPE
 import grp
 import crypt
 import tempfile
@@ -1137,6 +1138,57 @@ class HostConsoleHandler(RouteHandler):
         gevent.joinall([wsock_reader, sock_reader, ping_sender])
 
 
+class VirtualMediaHandler(RouteHandler):
+    ''' Handles the /VirtualMedia route '''
+
+    verbs = ['GET']
+    rules = ['/VirtualMedia']
+    suppress_logging = True
+
+    def __init__(self, app, bus):
+        super(VirtualMediaHandler, self).__init__(
+            app, bus, self.verbs, self.rules)
+        self.p = Popen('nbd-proxy', stdin=PIPE, stdout=PIPE)
+
+    def find(self, **kw):
+        pass
+
+    def setup(self, **kw):
+        pass
+
+    def read_wsock(self, wsock, p):
+        while True:
+            try:
+                incoming = wsock.receive()
+                if incoming:
+                    p.stdin.write(incoming)
+                    p.stdin.close
+                    p.wait()
+            except Exception as e:
+                return
+
+    def read_sock(self, p, wsock):
+        while True:
+            try:
+                outgoing = p.stdout.readline()
+                p.wait()
+                if outgoing:
+                    wsock.send(outgoing)
+            except Exception as e:
+                wsock.close()
+                return
+
+    def do_get(self):
+        wsock = request.environ.get('wsgi.websocket')
+        if not wsock:
+            abort(400, 'Expected WebSocket based request.')
+
+        wsock_reader = Greenlet.spawn(self.read_wsock, wsock, self.p)
+        sock_reader = Greenlet.spawn(self.read_sock, self.p, wsock)
+        ping_sender = Greenlet.spawn(send_ws_ping, self.p, WEBSOCKET_TIMEOUT)
+        gevent.joinall([wsock_reader, sock_reader, ping_sender])
+
+
 class ImagePutHandler(RouteHandler):
     ''' Handles the /upload/image/<filename> route. '''
 
@@ -1746,6 +1798,7 @@ class App(Bottle):
         if self.have_wsock:
             self.event_handler = EventHandler(self, self.bus)
             self.host_console_handler = HostConsoleHandler(self, self.bus)
+            self.virtual_media_handler = VirtualMediaHandler(self, self.bus)
         self.instance_handler = InstanceHandler(self, self.bus)
 
     def install_handlers(self):
@@ -1764,6 +1817,7 @@ class App(Bottle):
         if self.have_wsock:
             self.event_handler.install()
             self.host_console_handler.install()
+            self.virtual_media_handler.install()
         # this has to come last, since it matches everything
         self.instance_handler.install()
 

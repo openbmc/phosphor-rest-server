@@ -868,6 +868,7 @@ class PasswordChangeHandler(RouteHandler):
     rules = '/xyz/openbmc_project/user/root/action/SetPassword'
 
     content_type = 'application/json'
+    suppress_json_logging = True
 
     def __init__(self, app, bus):
         super(PasswordChangeHandler, self).__init__(

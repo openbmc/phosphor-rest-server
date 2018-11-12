@@ -297,11 +297,22 @@ class DirectoryHandler(RouteHandler):
             app, bus, self.verbs, self.rules)
 
     def find(self, path='/'):
-        return self.try_mapper_call(
-            self.mapper.get_subtree_paths, path=path, depth=1)
+        try:
+            return self.try_mapper_call(
+                self.mapper.get_subtree_paths, path=path, depth=1)
+        except HTTPError as e:
+            if e.status == '404 Not Found':
+                return []
 
     def setup(self, path='/'):
         request.route_data['map'] = self.find(path)
+        if not request.route_data['map']:
+            try:
+                root = self.mapper.get_object(path)
+            except dbus.exceptions.DBusException as e:
+                if e.get_dbus_name() == \
+                        'org.freedesktop.DBus.Error.FileNotFound':
+                    abort(404, str(e))
 
     def do_get(self, path='/'):
         return request.route_data['map']
@@ -317,11 +328,23 @@ class ListNamesHandler(RouteHandler):
             app, bus, self.verbs, self.rules)
 
     def find(self, path='/'):
-        return list(self.try_mapper_call(
-            self.mapper.get_subtree, path=path).keys())
+        try:
+            return list(self.try_mapper_call(
+                self.mapper.get_subtree, path=path).keys())
+        except HTTPError as e:
+            if e.status == '404 Not Found':
+                return []
 
     def setup(self, path='/'):
         request.route_data['map'] = self.find(path)
+
+        if not request.route_data['map']:
+            try:
+                root = self.mapper.get_object(path)
+            except dbus.exceptions.DBusException as e:
+                if e.get_dbus_name() == \
+                        'org.freedesktop.DBus.Error.FileNotFound':
+                    abort(404, str(e))
 
     def do_get(self, path='/'):
         return request.route_data['map']
@@ -341,7 +364,21 @@ class ListHandler(RouteHandler):
             self.mapper.get_subtree, path=path)
 
     def setup(self, path='/'):
-        request.route_data['map'] = self.find(path)
+        try:
+            request.route_data['map'] = self.find(path)
+        except dbus.exceptions.DBusException as e:
+            if e.get_dbus_name() == \
+                    'org.freedesktop.DBus.Error.FileNotFound':
+                 request.route_data['map'] = {}
+
+        if not request.route_data['map']:
+            try:
+                root = self.mapper.get_object(path)
+            except dbus.exceptions.DBusException as e:
+                if e.get_dbus_name() == \
+                        'org.freedesktop.DBus.Error.FileNotFound':
+                    print("not found!")
+                    abort(404, str(e))
 
     def do_get(self, path='/'):
         return {x: y for x, y in self.mapper.enumerate_subtree(

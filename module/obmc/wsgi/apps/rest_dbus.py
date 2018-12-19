@@ -1119,11 +1119,10 @@ class HostConsoleHandler(RouteHandler):
         if not wsock:
             abort(400, 'Expected WebSocket based request.')
 
-        # A UNIX domain socket structure defines a 108-byte pathname. The
-        # server in this case, obmc-console-server, expects a 108-byte path.
+        # An abstract Unix socket path must be less than or equal to 108 bytes
+        # and does not need to be nul-terminated or padded out to 108 bytes
         socket_name = "\0obmc-console"
-        trailing_bytes = "\0" * (108 - len(socket_name))
-        socket_path = socket_name + trailing_bytes
+        socket_path = socket_name
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
         try:

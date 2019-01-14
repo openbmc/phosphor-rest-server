@@ -530,8 +530,11 @@ class PropertyHandler(RouteHandler):
             properties_iface = dbus.Interface(
                 obj, dbus_interface=dbus.PROPERTIES_IFACE)
 
-            info = self.get_host_interface_on_bus(
-                path, prop, properties_iface, bus, interfaces)
+            try:
+                info = self.get_host_interface_on_bus(
+                    path, prop, properties_iface, bus, interfaces)
+            except Exception:
+                continue
             if info is not None:
                 prop, iface = info
                 return prop, iface, properties_iface

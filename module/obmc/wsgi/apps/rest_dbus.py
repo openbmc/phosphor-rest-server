@@ -97,7 +97,8 @@ def get_method_signature(bus, service, object_path, interface, method):
             for dbus_method in dbus_intf.findall('method'):
                 if(dbus_method.get('name') == method):
                     for arg in dbus_method.findall('arg'):
-                        arglist.append(arg.get('type'))
+                        if (arg.get('direction') == 'in'):
+                            arglist.append(arg.get('type'))
                     return arglist
 
 
